@@ -13,6 +13,7 @@ export const homeStyles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   scrollContent: {
+    flexGrow: 1,
     paddingBottom: 30,
   },
 
@@ -33,41 +34,6 @@ export const homeStyles = StyleSheet.create({
     marginBottom: 12,
   },
 
-  // ====== 游戏信息框 ======
-  gameInfoRow: {
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "space-between",
-  },
-  infoBox: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  infoBoxLabel: {
-    fontSize: 12,
-    color: "#6B7280",
-    marginBottom: 4,
-    fontWeight: "500",
-  },
-  infoBoxValue: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#3B82F6",
-  },
-  gameOverStatus: {
-    color: "#EF4444",
-  },
-
   // ====== 按钮部分 ======
   buttonSection: {
     flexDirection: "row",
@@ -86,6 +52,7 @@ export const homeStyles = StyleSheet.create({
 
   // ====== 桌面布局 - 容器 ======
   tableSection: {
+    flex: 1,
     marginTop: 12,
     paddingHorizontal: 4,
   },
@@ -96,10 +63,10 @@ export const homeStyles = StyleSheet.create({
     marginBottom: 12,
   },
   tableContainer: {
-    borderRadius: 16,
-    paddingVertical: 16,
-    paddingHorizontal: 10,
-    backgroundColor: "#E0F2FE",
+    borderRadius: 20,
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+    backgroundColor: "#0B1A2A",
     justifyContent: "space-between",
   },
 

@@ -26,7 +26,7 @@ const PLAY_TYPE_LABELS: Record<string, string> = {
   JOKER_BOMB: "王炸",
 };
 
-interface ManualPlayerPanelProps {
+export interface ManualPlayerPanelProps {
   player: PlayerState | null;
   request: ManualDecisionRequest | null;
   lastPlay: Play | null;
@@ -36,6 +36,7 @@ interface ManualPlayerPanelProps {
   onSubmit: (cards: Card[]) => void;
   onPass: () => void;
   onHintRequest?: () => Card[] | null;
+  variant?: "standalone" | "embedded";
 }
 
 export function ManualPlayerPanel({
@@ -48,6 +49,7 @@ export function ManualPlayerPanel({
   onSubmit,
   onPass,
   onHintRequest,
+  variant = "standalone",
 }: ManualPlayerPanelProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [hintMessage, setHintMessage] = useState<string | null>(null);
@@ -63,6 +65,7 @@ export function ManualPlayerPanel({
       ? "轮到你出牌啦"
       : askPrompt
     : "等待电脑执行";
+  const isStandalone = variant === "standalone";
 
   const getPlayTypeLabel = (type?: string) =>
     type ? PLAY_TYPE_LABELS[type] ?? type : "";
@@ -72,94 +75,6 @@ export function ManualPlayerPanel({
     return [...player.hand].sort(compareCard);
   }, [player]);
   const recentHistory = history?.slice(0, 4) ?? [];
-
-  type QuickSelection = {
-    key: string;
-    label: string;
-    cards: Card[];
-  };
-
-  const quickSelections: QuickSelection[] = useMemo(() => {
-    if (!player) return [];
-    const selections: QuickSelection[] = [];
-
-    if (sortedHand.length > 0) {
-      selections.push({
-        key: "single",
-        label: "🃏 最小单张",
-        cards: [sortedHand[0]],
-      });
-    }
-
-    const rankOrder: string[] = [];
-    const rankBuckets = new Map<string, Card[]>();
-    sortedHand.forEach((card) => {
-      const bucket = rankBuckets.get(card.rank);
-      if (bucket) {
-        bucket.push(card);
-      } else {
-        rankOrder.push(card.rank);
-        rankBuckets.set(card.rank, [card]);
-      }
-    });
-
-    const findByCount = (count: number) => {
-      for (const rank of rankOrder) {
-        const bucket = rankBuckets.get(rank);
-        if (bucket && bucket.length >= count) {
-          return bucket.slice(0, count);
-        }
-      }
-      return null;
-    };
-
-    const pair = findByCount(2);
-    if (pair) {
-      selections.push({
-        key: "pair",
-        label: "👯 最小对子",
-        cards: pair,
-      });
-    }
-
-    const triple = findByCount(3);
-    if (triple) {
-      selections.push({
-        key: "triple",
-        label: "🔱 最小三张",
-        cards: triple,
-      });
-    }
-
-    const bomb = (() => {
-      for (const rank of rankOrder) {
-        const bucket = rankBuckets.get(rank);
-        if (bucket && bucket.length >= 4) {
-          return bucket.slice(0, 4);
-        }
-      }
-      return null;
-    })();
-    if (bomb) {
-      selections.push({
-        key: "bomb",
-        label: "💣 炸弹",
-        cards: bomb,
-      });
-    }
-
-    const smallJoker = player.hand.find((c) => c.rank === "SJ");
-    const bigJoker = player.hand.find((c) => c.rank === "BJ");
-    if (smallJoker && bigJoker) {
-      selections.push({
-        key: "joker",
-        label: "🂿 王炸",
-        cards: [smallJoker, bigJoker],
-      });
-    }
-
-    return selections;
-  }, [player, sortedHand]);
 
   const selectedCards = useMemo(() => {
     if (!player) return [];
@@ -219,20 +134,6 @@ export function ManualPlayerPanel({
     setSelectedIds([]);
   };
 
-  const applyQuickSelection = (cards: Card[]) => {
-    if (!actionable || cards.length === 0) return;
-    Haptics.selectionAsync().catch(() => {});
-    setSelectedIds(cards.map((card) => card.id));
-    const classified = classifyPlay(cards);
-    if (classified) {
-      setHintMessage(
-        `已快速选中：${getPlayTypeLabel(classified.type)} · ${cards.length} 张`
-      );
-    } else {
-      setHintMessage("已快速选中组合");
-    }
-  };
-
   const handleSubmit = () => {
     if (!player || !request || !canSubmit || selectedCards.length === 0) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -271,106 +172,29 @@ export function ManualPlayerPanel({
     }
   };
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>🂡 真人操作区</Text>
-        {player && (
-          <Text style={styles.subtitle}>
-            {player.name +
-              " · " +
-              player.hand.length +
-              " 张牌 · 阵营 " +
-              player.camp}
-          </Text>
-        )}
-      </View>
-
-      <View
-        style={[
-          styles.statusBadge,
-          actionable ? styles.statusActive : styles.statusIdle,
-        ]}
-      >
-        <Text
-          style={[
-            styles.statusText,
-            actionable ? styles.statusTextActive : styles.statusTextIdle,
-          ]}
-        >
-          {title}
-        </Text>
-      </View>
-
-      {lastPlay && request && (
-        <View style={styles.referenceBox}>
-          <Text style={styles.referenceTitle}>
-            {mustBeatCurrent ? "需要压住的牌" : "上一手参考"}
-          </Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={styles.referenceCards}>
-              {lastPlay.cards.map((card) => (
-                <CardDisplay key={card.id} card={card} size="small" />
-              ))}
+  const handSection = (
+    <View
+      style={[
+        styles.handSection,
+        variant === "embedded" && styles.embeddedHandSection,
+      ]}
+    >
+      <View style={styles.handHeader}>
+        <Text style={styles.handTitle}>手牌</Text>
+        <View style={styles.handHeaderRight}>
+          {actionable && (
+            <View style={styles.turnChip}>
+              <Text style={styles.turnChipText}>出牌中</Text>
             </View>
-          </ScrollView>
-          <Text style={styles.referenceMeta}>
-            {getPlayTypeLabel(lastPlay.type) +
-              " · " +
-              lastPlay.cards.length +
-              " 张"}
+          )}
+          <Text style={styles.handHint}>
+            {actionable
+              ? `点击卡牌可以选中/取消（已选 ${selectedIds.length} 张）`
+              : "等待电脑操作中..."}
           </Text>
         </View>
-      )}
-
-      {quickSelections.length > 0 && (
-        <View style={styles.quickSection}>
-          <Text style={styles.quickTitle}>⚡️ 快速选牌</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.quickActions}
-          >
-            {quickSelections.map((action) => {
-              const actionSelected =
-                selectedIds.length === action.cards.length &&
-                action.cards.every((card) => selectedIds.includes(card.id));
-              return (
-                <TouchableOpacity
-                  key={action.key}
-                  style={[
-                    styles.quickActionButton,
-                    actionSelected && styles.quickActionActive,
-                  ]}
-                  onPress={() => applyQuickSelection(action.cards)}
-                  disabled={!actionable}
-                >
-                  <Text
-                    style={[
-                      styles.quickActionText,
-                      actionSelected && styles.quickActionTextActive,
-                    ]}
-                  >
-                    {action.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-      )}
-
-      <View style={styles.handSection}>
-        <View style={styles.handHeader}>
-          <Text style={styles.handTitle}>手牌</Text>
-          {actionable ? (
-            <Text style={styles.handHint}>
-              {"点击卡牌可以选中/取消（已选 " + selectedIds.length + " 张）"}
-            </Text>
-          ) : (
-            <Text style={styles.handHint}>等待电脑操作中...</Text>
-          )}
-        </View>
+      </View>
+      <View style={styles.handCardsWrapper}>
         <HandCards
           cards={sortedHand}
           selectedIds={selectedIds}
@@ -378,7 +202,16 @@ export function ManualPlayerPanel({
           actionable={actionable}
         />
       </View>
+    </View>
+  );
 
+  const actionSection = (
+    <View
+      style={[
+        variant === "embedded" && styles.sectionCard,
+        styles.actionsSection,
+      ]}
+    >
       <View style={styles.selectionSummary}>
         <Text style={styles.selectionHint}>{selectionHint}</Text>
         <TouchableOpacity
@@ -431,42 +264,115 @@ export function ManualPlayerPanel({
         </TouchableOpacity>
       </View>
       {hintMessage && <Text style={styles.hintMessage}>{hintMessage}</Text>}
+    </View>
+  );
 
-      {recentHistory.length > 0 && (
-        <View style={styles.historySection}>
-          <Text style={styles.historyTitle}>📝 我的操作记录</Text>
-          {recentHistory.map((entry) => (
-            <View key={entry.id} style={styles.historyItem}>
-              <View style={styles.historyMetaRow}>
-                <Text style={styles.historyActionText}>
-                  {formatHistoryAction(entry, getPlayTypeLabel)}
-                </Text>
-                <Text style={styles.historyTimeText}>
-                  {formatHistoryTime(entry.timestamp)}
-                </Text>
-              </View>
-              {entry.note && (
-                <Text style={styles.historyNoteText}>{entry.note}</Text>
-              )}
-              {entry.cards.length > 0 && (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.historyCardsRow}
-                >
-                  {entry.cards.map((card) => (
-                    <CardDisplay
-                      key={`${entry.id}-${card.id}`}
-                      card={card}
-                      size="small"
-                    />
-                  ))}
-                </ScrollView>
-              )}
+  const historySection =
+    recentHistory.length > 0 ? (
+      <View
+        style={[
+          styles.historySection,
+          variant === "embedded" && styles.sectionCard,
+        ]}
+      >
+        <Text style={styles.historyTitle}>📝 我的操作记录</Text>
+        {recentHistory.map((entry) => (
+          <View key={entry.id} style={styles.historyItem}>
+            <View style={styles.historyMetaRow}>
+              <Text style={styles.historyActionText}>
+                {formatHistoryAction(entry, getPlayTypeLabel)}
+              </Text>
+              <Text style={styles.historyTimeText}>
+                {formatHistoryTime(entry.timestamp)}
+              </Text>
             </View>
-          ))}
+            {entry.note && (
+              <Text style={styles.historyNoteText}>{entry.note}</Text>
+            )}
+            {entry.cards.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.historyCardsRow}
+              >
+                {entry.cards.map((card) => (
+                  <CardDisplay
+                    key={`${entry.id}-${card.id}`}
+                    card={card}
+                    size="small"
+                  />
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        ))}
+      </View>
+    ) : null;
+
+  return (
+    <View
+      style={[
+        styles.container,
+        variant === "embedded" && styles.embeddedContainer,
+      ]}
+    >
+      {isStandalone && (
+        <>
+          <View style={styles.headerRow}>
+            <Text style={styles.title}>🂡 真人操作区</Text>
+            {player && (
+              <Text style={styles.subtitle}>
+                {player.name +
+                  " · " +
+                  player.hand.length +
+                  " 张牌 · 阵营 " +
+                  player.camp}
+              </Text>
+            )}
+          </View>
+
+          <View
+            style={[
+              styles.statusBadge,
+              actionable ? styles.statusActive : styles.statusIdle,
+            ]}
+          >
+            <Text
+              style={[
+                styles.statusText,
+                actionable ? styles.statusTextActive : styles.statusTextIdle,
+              ]}
+            >
+              {title}
+            </Text>
+          </View>
+        </>
+      )}
+
+      {isStandalone && lastPlay && request && (
+        <View style={styles.referenceBox}>
+          <Text style={styles.referenceTitle}>
+            {mustBeatCurrent ? "需要压住的牌" : "上一手参考"}
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={styles.referenceCards}>
+              {lastPlay.cards.map((card) => (
+                <CardDisplay key={card.id} card={card} size="small" />
+              ))}
+            </View>
+          </ScrollView>
+          <Text style={styles.referenceMeta}>
+            {getPlayTypeLabel(lastPlay.type) +
+              " · " +
+              lastPlay.cards.length +
+              " 张"}
+          </Text>
         </View>
       )}
+
+      {handSection}
+      {actionSection}
+      {historySection}
     </View>
   );
 }
@@ -503,6 +409,17 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginVertical: 12,
+  },
+  embeddedContainer: {
+    marginVertical: 0,
+    padding: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.35)",
+    backgroundColor: "rgba(7, 16, 37, 0.85)",
+    width: "100%",
+    flex: 1,
+    flexDirection: "column",
   },
   headerRow: {
     marginBottom: 8,
@@ -564,12 +481,26 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   handSection: {
-    marginTop: 100, // 原来如果是 8、12 之类，直接换成 40
+    marginTop: 12,
+    borderRadius: 20,
     paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.35)",
+    backgroundColor: "rgba(15,23,42,0.7)",
+    shadowColor: "#000",
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  embeddedHandSection: {
+    flex: 1,
+    marginTop: 4,
+    marginBottom: 0,
+    paddingHorizontal: 18,
     paddingBottom: 12,
-    backgroundColor: "rgba(15, 23, 42, 0.6)",
-    borderRadius: 12,
-    padding: 12,
+    backgroundColor: "rgba(8,15,30,0.9)",
+    borderColor: "rgba(251,191,36,0.45)",
   },
   handHeader: {
     flexDirection: "row",
@@ -577,16 +508,37 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   handTitle: {
-    color: "#F8FAFC",
-    fontWeight: "700",
+    color: "#FEF3C7",
+    fontWeight: "800",
+    fontSize: 18,
+  },
+  handHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    maxWidth: "70%",
   },
   handHint: {
     color: "#94A3B8",
     fontSize: 12,
   },
-  handCards: {
-    flexDirection: "row",
-    gap: 8,
+  handCardsWrapper: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingBottom: 4,
+    paddingTop: 6,
+  },
+  turnChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: "#FACC15",
+  },
+  turnChipText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#1F2937",
   },
   emptyHand: {
     color: "#F8FAFC",
@@ -657,38 +609,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 12,
   },
-  quickSection: {
-    marginTop: 8,
-    marginBottom: 12,
-  },
-  quickTitle: {
-    color: "#9CA3AF",
-    fontSize: 12,
-    marginBottom: 6,
-  },
-  quickActions: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  quickActionButton: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#475569",
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-  },
-  quickActionActive: {
-    backgroundColor: "rgba(34,197,94,0.15)",
-    borderColor: "#22C55E",
-  },
-  quickActionText: {
-    color: "#E2E8F0",
-    fontSize: 12,
-  },
-  quickActionTextActive: {
-    color: "#22C55E",
-    fontWeight: "700",
-  },
   historySection: {
     marginTop: 16,
     backgroundColor: "rgba(15,23,42,0.45)",
@@ -725,5 +645,35 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 4,
     marginTop: 6,
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  quickMeta: {
+    color: "#94A3B8",
+    fontSize: 11,
+  },
+  sectionCard: {
+    backgroundColor: "rgba(15,23,42,0.65)",
+    borderRadius: 16,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    marginVertical: 6,
+  },
+  sectionCardLarge: {
+    backgroundColor: "rgba(15,23,42,0.65)",
+    borderRadius: 18,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    marginVertical: 6,
+  },
+  actionsSection: {
+    marginTop: 8,
   },
 });

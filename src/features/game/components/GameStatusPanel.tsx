@@ -1,7 +1,6 @@
 import { GameState } from "@/features/game/engine/gameEngineDemo";
 import React from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { CardDisplay } from "./CardDisplay";
+import { StyleSheet, Text, View } from "react-native";
 
 interface GameStatusPanelProps {
   state: GameState;
@@ -12,26 +11,6 @@ interface GameStatusPanelProps {
  * 显示当前回合、出牌者、牌型等关键信息
  */
 export function GameStatusPanel({ state }: GameStatusPanelProps) {
-  const currentPlayer = state.players[state.currentPlayerIndex];
-  const lastPlayOwner =
-    state.lastPlayOwnerIndex !== null
-      ? state.players[state.lastPlayOwnerIndex]
-      : null;
-
-  const getPlayTypeLabel = (playType?: string): string => {
-    const labels: Record<string, string> = {
-      SINGLE: "单张",
-      PAIR: "对子",
-      TRIPLE: "三张",
-      STRAIGHT: "顺子",
-      CHAIN_PAIR: "连对",
-      CHAIN_TRIPLE: "连续三张",
-      BOMB: "炸弹",
-      JOKER_BOMB: "王炸",
-    };
-    return labels[playType || ""] || "未知";
-  };
-
   const finishedCount = state.players.filter((p) => p.finished).length;
   const totalPlayers = state.players.length;
   const activeCount = totalPlayers - finishedCount;
@@ -46,57 +25,6 @@ export function GameStatusPanel({ state }: GameStatusPanelProps) {
             {state.gameOver ? "✅ 已结束" : "▶️ 进行中"}
           </Text>
         </View>
-      </View>
-
-      {/* 当前出牌玩家 */}
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>当前轮次</Text>
-        <View style={styles.playerBox}>
-          <Text style={styles.playerName}>{currentPlayer?.name}</Text>
-          <Text style={styles.playerCamp}>阵营 {currentPlayer?.camp} 阵营</Text>
-          <Text style={styles.playerHand}>
-            手牌数：{currentPlayer?.hand.length || 0}
-          </Text>
-        </View>
-      </View>
-
-      {/* 最近出牌 */}
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>
-          最近出牌 {lastPlayOwner ? `(${lastPlayOwner.name})` : ""}
-        </Text>
-        {state.lastPlay ? (
-          <View style={styles.playBox}>
-            <View style={styles.playTypeRow}>
-              <Text style={styles.playType}>
-                {getPlayTypeLabel(state.lastPlay.type)}
-              </Text>
-              <Text style={styles.cardCount}>
-                {state.lastPlay.cards.length} 张
-              </Text>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.cardsScroll}
-            >
-              <View style={styles.cardsContainer}>
-                {state.lastPlay.cards.map((card) => (
-                  <CardDisplay
-                    key={card.id}
-                    card={card}
-                    size="small"
-                    style={styles.cardMargin}
-                  />
-                ))}
-              </View>
-            </ScrollView>
-          </View>
-        ) : (
-          <View style={styles.playBox}>
-            <Text style={styles.noPlayText}>等待首家出牌...</Text>
-          </View>
-        )}
       </View>
 
       {/* 游戏进度 */}
@@ -211,62 +139,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#4B5563",
     marginBottom: 8,
-  },
-  playerBox: {
-    backgroundColor: "#FFFFFF",
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  playerName: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1F2937",
-    marginBottom: 4,
-  },
-  playerCamp: {
-    fontSize: 14,
-    color: "#6B7280",
-    marginBottom: 2,
-  },
-  playerHand: {
-    fontSize: 12,
-    color: "#9CA3AF",
-  },
-  playBox: {
-    backgroundColor: "#111827",
-    padding: 12,
-    borderRadius: 12,
-  },
-  playTypeRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10,
-  },
-  playType: {
-    color: "#FDE68A",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-  cardCount: {
-    color: "#9CA3AF",
-    fontSize: 12,
-  },
-  cardsScroll: {
-    marginHorizontal: -12,
-  },
-  cardsContainer: {
-    flexDirection: "row",
-    paddingHorizontal: 12,
-  },
-  cardMargin: {
-    marginRight: 6,
-  },
-  noPlayText: {
-    color: "#9CA3AF",
-    textAlign: "center",
   },
   progressRow: {
     flexDirection: "row",

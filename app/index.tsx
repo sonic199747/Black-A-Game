@@ -2,12 +2,12 @@ import {
   ControlButtons,
   GameResultPanel,
   GameStatusPanel,
-  ManualPlayerPanel,
   SixPlayerTableLayout,
   TopInfoBar,
   homeStyles,
   useGameState,
 } from "@/features/game";
+import type { ManualPlayerPanelProps } from "@/features/game/components/ManualPlayerPanel";
 import React from "react";
 import { ScrollView, Text, View } from "react-native";
 const PLAYER_COUNT = 6;
@@ -26,9 +26,7 @@ export default function HomeScreen() {
   // ===== 游戏状态管理 =====
   const {
     state,
-    turn,
     engine,
-    currentPlayer,
     players,
     handleRestart,
     handleNextTurn,
@@ -55,6 +53,20 @@ export default function HomeScreen() {
         state.lastPlayOwnerIndex !== manualPlayerIndex
     );
 
+  const manualPanelProps: ManualPlayerPanelProps | null = manualPlayer
+    ? {
+        player: manualPlayer,
+        request: manualRequest,
+        lastPlay: state.lastPlay,
+        mustBeatCurrent,
+        triggerPlayerName,
+        history: manualHistory,
+        onSubmit: (cards) => submitManualDecision(cards),
+        onPass: () => submitManualDecision(null),
+        onHintRequest: requestManualHint,
+      }
+    : null;
+
   return (
     <ScrollView
       style={homeStyles.container}
@@ -62,7 +74,7 @@ export default function HomeScreen() {
       showsVerticalScrollIndicator={false}
     >
       {/* ===== 顶部信息栏 ===== */}
-      <TopInfoBar state={state} turn={turn} playerCount={PLAYER_COUNT} />
+      <TopInfoBar />
 
       {/* ===== 控制按钮 ===== */}
       <ControlButtons
@@ -76,21 +88,6 @@ export default function HomeScreen() {
       {/* ===== 游戏状态面板 ===== */}
       <GameStatusPanel state={state} />
 
-      {/* ===== 真人操作区 ===== */}
-      {manualPlayer && (
-        <ManualPlayerPanel
-          player={manualPlayer}
-          request={manualRequest}
-          lastPlay={state.lastPlay}
-          mustBeatCurrent={mustBeatCurrent}
-          triggerPlayerName={triggerPlayerName}
-          history={manualHistory}
-          onSubmit={(cards) => submitManualDecision(cards)}
-          onPass={() => submitManualDecision(null)}
-          onHintRequest={requestManualHint}
-        />
-      )}
-
       {/* ===== 游戏结算面板（游戏结束时显示）===== */}
       {state.gameOver && (
         <GameResultPanel result={engine.lastResult} players={players} />
@@ -103,6 +100,13 @@ export default function HomeScreen() {
           players={players}
           currentPlayerIndex={state.currentPlayerIndex} // 如果 state 里有这个字段
           selfIndex={0} // 你现在人类玩家就是 index 0
+          manualPanelProps={manualPanelProps}
+          lastPlay={state.lastPlay}
+          lastPlayOwnerName={
+            state.lastPlayOwnerIndex !== null
+              ? players[state.lastPlayOwnerIndex]?.name
+              : undefined
+          }
         />
       </View>
 

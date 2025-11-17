@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import type { Card } from "../engine/cards";
 import { CardDisplay } from "./CardDisplay";
@@ -16,68 +16,42 @@ export function HandCards({
   onToggleSelect,
   actionable = true,
 }: HandCardsProps) {
-  const cardWidth = 48;
-  const overlap = 20;
-
-  const totalWidth =
-    cards.length > 0 ? cardWidth + (cards.length - 1) * overlap : 0;
-
-  // 用于弧形 & 扇形的参数
-  const count = cards.length;
-  const centerIndex = (count - 1) / 2; // 中心索引（可以是小数）
-  const maxFanAngle = 22; // 整个扇形的总角度（左右各一半）
-  const arcHeight = 14; // 弧形中间抬起的高度（像扇形边缘低，中间高）
+  const cardSpacing = useMemo(() => {
+    if (cards.length <= 5) return 12;
+    if (cards.length <= 8) return 6;
+    if (cards.length <= 12) return -4;
+    if (cards.length <= 16) return -10;
+    return -14;
+  }, [cards.length]);
 
   return (
     <View style={styles.container}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { width: Math.max(totalWidth, 0) },
-        ]}
+        contentContainerStyle={styles.scrollContent}
       >
         {cards.map((card, index) => {
           const selected = selectedIds.includes(card.id);
+          const baseLift = selected ? -26 : 0;
 
-          // 扇形角度：左负右正，中间接近 0°
-          const angleStep = count > 1 ? maxFanAngle / (count - 1) : 0;
-          const angle = (index - centerIndex) * angleStep; // 例如 -11°, -5.5°, 0, 5.5°, 11°
-
-          // 弧形高度：中间最高，两边逐渐变低
-          // t 在 [-1, 1] 之间，中间 0，两边 ±1
-          const t = count <= 1 ? 0 : (index - centerIndex) / centerIndex;
-          const baseYOffset = -arcHeight * (1 - t * t); // 抛物线，中间 -arcHeight，两边 0
-
-          // 选中 / 按下时的额外位移
-          let translateY = baseYOffset;
-          if (selected) {
-            translateY -= 10; // 再往上抬一点
-          }
-
-          // Pressable 的 pressed 态里再加一点细节
           return (
             <Pressable
               key={card.id}
               onPress={() => actionable && onToggleSelect(card.id)}
               style={({ pressed }) => {
-                const extraPressOffset = pressed ? -4 : 0;
-
+                const pressLift = pressed ? -4 : 0;
                 return [
                   styles.cardWrapper,
-                  // 重叠
-                  { marginLeft: index === 0 ? 0 : -overlap },
                   {
-                    transform: [
-                      { translateY: translateY + extraPressOffset },
-                      { rotate: `${angle}deg` },
-                    ],
+                    marginLeft: index === 0 ? 0 : cardSpacing,
+                    transform: [{ translateY: baseLift + pressLift }],
+                    zIndex: selected ? 100 + index : index,
                   },
                 ];
               }}
             >
-              <CardDisplay card={card} size="medium" />
+              <CardDisplay card={card} size="large" />
             </Pressable>
           );
         })}
@@ -88,16 +62,21 @@ export function HandCards({
 
 const styles = StyleSheet.create({
   container: {
-    height: 130, // 稍微高一点，给弧形留空间
+    minHeight: 150,
     justifyContent: "center",
-    paddingHorizontal: 8,
+    paddingVertical: 6,
   },
   scrollContent: {
     flexDirection: "row",
-    alignItems: "flex-end", // 以底部为基准往上弯
+    alignItems: "flex-end",
+    justifyContent: "center",
+    flexGrow: 1,
+    paddingHorizontal: 12,
     paddingVertical: 4,
   },
   cardWrapper: {
-    // transform 在上面动态计算
+    shadowColor: "#000",
+    shadowOpacity: 0.28,
+    shadowRadius: 6,
   },
 });
