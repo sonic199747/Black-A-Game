@@ -1,4 +1,4 @@
-import { Card, compareCard, isBlackA } from "./cards";
+import { Card, compareCard, isBlackA, rankToValue } from "./cards";
 import { judgeResult, PlayerFinish, Result } from "./judgeResult";
 import { canBeat, classifyPlay, Play, PlayType } from "./plays";
 
@@ -26,6 +26,33 @@ export interface GameState {
   passesInRound: number; // 当前这墩里，其他人连续 PASS 次数
   finishCount: number; // 已经出完的玩家数量
   gameOver: boolean; // 新增：游戏是否已经结束
+  tributeSummary: TributeSummary | null;
+  result?: Result | null;
+}
+
+export interface TributeCardTransfer {
+  card: Card;
+  fromId: string;
+  toId: string;
+}
+
+export interface TributeExchange {
+  giverId: string;
+  giverName: string;
+  tributeCards: TributeCardTransfer[];
+  returnCards: TributeCardTransfer[];
+}
+
+export interface TributeSummary {
+  winnerCamp: Camp;
+  winnerIds: string[];
+  caughtIds: string[];
+  exchanges: TributeExchange[];
+}
+
+export interface PreviousRoundSnapshot {
+  result: Result;
+  players: Array<Pick<PlayerState, "id" | "name" | "camp">>;
 }
 
 // =============== 决策接口 ===============
@@ -136,6 +163,164 @@ function formatCard(card: Card): string {
     joker: "JOKER",
   };
   return `${suitMap[card.suit]}${card.rank}`;
+}
+
+const MAX_RETURN_CARD_VALUE = rankToValue("10");
+
+function shuffleWithRng<T>(input: T[], randomFn: () => number = Math.random) {
+  const arr = [...input];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(randomFn() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function removeCardsById(hand: Card[], ids: string[]): void {
+  const idSet = new Set(ids);
+  for (let i = hand.length - 1; i >= 0; i--) {
+    if (idSet.has(hand[i].id)) {
+      hand.splice(i, 1);
+    }
+  }
+}
+
+function pickTributeCards(hand: Card[], count: number): Card[] {
+  if (count <= 0) return [];
+  const eligible = hand.filter((card) => !isBlackA(card));
+  if (eligible.length === 0) return [];
+  const sorted = [...eligible].sort((a, b) => compareCard(b, a));
+  return sorted.slice(0, Math.min(count, sorted.length));
+}
+
+interface WinnerReturnPool {
+  eligible: Card[];
+}
+
+function buildReturnPools(
+  winnerIds: string[],
+  originalHands: Map<string, Card[]>
+): Map<string, WinnerReturnPool> {
+  const pools = new Map<string, WinnerReturnPool>();
+  for (const winnerId of winnerIds) {
+    const original = originalHands.get(winnerId) ?? [];
+    const eligible = original
+      .filter((card) => rankToValue(card.rank) <= MAX_RETURN_CARD_VALUE)
+      .sort(compareCard);
+    pools.set(winnerId, { eligible });
+  }
+  return pools;
+}
+
+function chooseReturnCard(
+  winnerId: string,
+  pools: Map<string, WinnerReturnPool>
+): Card | null {
+  const pool = pools.get(winnerId);
+  if (!pool) return null;
+  if (pool.eligible.length === 0) return null;
+  return pool.eligible.shift() ?? null;
+}
+
+export function applyTributeRule(
+  players: PlayerState[],
+  snapshot: PreviousRoundSnapshot,
+  randomFn: () => number = Math.random
+): TributeSummary | null {
+  const { result, players: previousPlayers } = snapshot;
+  if (result.winner !== "A" && result.winner !== "B") {
+    return null;
+  }
+
+  if (!result.caught || result.caught.length === 0) {
+    return null;
+  }
+
+  const winnerIds = previousPlayers
+    .filter((p) => p.camp === result.winner)
+    .map((p) => p.id);
+
+  if (winnerIds.length === 0) {
+    return null;
+  }
+
+  const playerMap = new Map<string, PlayerState>();
+  players.forEach((p) => playerMap.set(p.id, p));
+
+  const originalHands = new Map<string, Card[]>();
+  players.forEach((p) => {
+    originalHands.set(p.id, [...p.hand]);
+  });
+
+  const pools = buildReturnPools(winnerIds, originalHands);
+  const exchanges: TributeExchange[] = [];
+
+  for (const giverId of result.caught) {
+    const giver = playerMap.get(giverId);
+    if (!giver) continue;
+
+    const cardsToGive = pickTributeCards(giver.hand, winnerIds.length);
+    if (cardsToGive.length === 0) continue;
+
+    removeCardsById(
+      giver.hand,
+      cardsToGive.map((card) => card.id)
+    );
+
+    const randomized = shuffleWithRng(cardsToGive, randomFn);
+    const assignments: { card: Card; toId: string }[] = [];
+
+    for (let i = 0; i < winnerIds.length && i < randomized.length; i++) {
+      const winnerId = winnerIds[i];
+      const receiver = playerMap.get(winnerId);
+      if (!receiver) continue;
+      const card = randomized[i];
+      receiver.hand.push(card);
+      assignments.push({ card, toId: winnerId });
+    }
+
+    if (assignments.length === 0) {
+      continue;
+    }
+
+    const returns: { card: Card; fromId: string }[] = [];
+
+    for (const assignment of assignments) {
+      const returnCard = chooseReturnCard(assignment.toId, pools);
+      const winner = playerMap.get(assignment.toId);
+      if (!returnCard || !winner) continue;
+
+      removeCardsById(winner.hand, [returnCard.id]);
+      giver.hand.push(returnCard);
+      returns.push({ card: returnCard, fromId: assignment.toId });
+    }
+
+    exchanges.push({
+      giverId: giver.id,
+      giverName: giver.name,
+      tributeCards: assignments.map((assignment) => ({
+        card: { ...assignment.card },
+        fromId: giver.id,
+        toId: assignment.toId,
+      })),
+      returnCards: returns.map((ret) => ({
+        card: { ...ret.card },
+        fromId: ret.fromId,
+        toId: giver.id,
+      })),
+    });
+  }
+
+  if (exchanges.length === 0) {
+    return null;
+  }
+
+  return {
+    winnerCamp: result.winner,
+    winnerIds,
+    caughtIds: result.caught,
+    exchanges,
+  };
 }
 
 // =============== Greedy AI：支持所有牌型，优先出最小可行解 ===============
@@ -748,6 +933,7 @@ export function runDebugGame(config: DebugGameConfig) {
     passesInRound: 0,
     finishCount: 0,
     gameOver: false,
+    tributeSummary: null,
   };
 
   const engine = new GameEngine(state, controllers);
@@ -778,6 +964,7 @@ export function runDebugGame(config: DebugGameConfig) {
 export interface CreateGameOptions {
   controllers?: Partial<Record<string, DecisionFn>>;
   playerNames?: string[];
+  previousRound?: PreviousRoundSnapshot | null;
 }
 
 export function createInitialGame(
@@ -813,6 +1000,10 @@ export function createInitialGame(
 
   const firstIndex = Math.floor(Math.random() * playerCount);
 
+  const tributeSummary = options.previousRound
+    ? applyTributeRule(players, options.previousRound)
+    : null;
+
   const state: GameState = {
     players,
     currentPlayerIndex: firstIndex,
@@ -821,6 +1012,7 @@ export function createInitialGame(
     passesInRound: 0,
     finishCount: 0,
     gameOver: false,
+    tributeSummary,
   };
 
   // 所有人用默认 AI（前端观战模式）

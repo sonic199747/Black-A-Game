@@ -8,6 +8,7 @@ export { SixPlayerTableLayout } from "./components/SixPlayerTableLayout";
 export { TableLayout } from "./components/TableLayout";
 export { TopInfoBar } from "./components/TopInfoBar";
 export { useGameState } from "./hooks/useGameState";
+export { useNetworkGameState } from "./hooks/useNetworkGameState";
 export { homeStyles } from "./styles/homeStyles";
 
 export * from "./engine/cards";

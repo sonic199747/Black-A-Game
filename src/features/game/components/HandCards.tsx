@@ -29,6 +29,7 @@ export function HandCards({
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
       >
         {cards.map((card, index) => {
@@ -62,9 +63,14 @@ export function HandCards({
 
 const styles = StyleSheet.create({
   container: {
-    minHeight: 150,
-    justifyContent: "center",
-    paddingVertical: 6,
+    minHeight: 170,
+    justifyContent: "flex-end",
+    paddingTop: 12,
+    paddingBottom: 2,
+    overflow: "visible",
+  },
+  scrollView: {
+    overflow: "visible",
   },
   scrollContent: {
     flexDirection: "row",
@@ -72,11 +78,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexGrow: 1,
     paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingBottom: 10,
   },
   cardWrapper: {
     shadowColor: "#000",
     shadowOpacity: 0.28,
     shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
   },
 });

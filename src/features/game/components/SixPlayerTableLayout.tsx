@@ -15,8 +15,25 @@ type SeatPosition =
   | "topLeft"
   | "bottomLeft";
 
+interface TablePlayerState extends PlayerState {
+  isPlaceholder?: boolean;
+  placeholderLabel?: string;
+}
+
+const MIN_SUPPORTED_PLAYERS = 1;
+const MAX_SUPPORTED_PLAYERS = 6;
+
+const seatLayouts: Record<number, SeatPosition[]> = {
+  1: ["bottom"],
+  2: ["bottom", "top"],
+  3: ["bottom", "topRight", "topLeft"],
+  4: ["bottom", "bottomRight", "top", "bottomLeft"],
+  5: ["bottom", "bottomRight", "topRight", "topLeft", "bottomLeft"],
+  6: ["bottom", "bottomRight", "topRight", "top", "topLeft", "bottomLeft"],
+};
+
 interface SixPlayerTableLayoutProps {
-  players: PlayerState[]; // 按 game state 顺序排的 6 个玩家
+  players: TablePlayerState[]; // 按 game state 顺序排的玩家（可包含占位符）
   currentPlayerIndex: number; // 当前出牌玩家的索引
   selfIndex: number; // “我”在 players 数组里的索引
   manualPanelProps?: ManualPlayerPanelProps | null;
@@ -25,7 +42,7 @@ interface SixPlayerTableLayoutProps {
 }
 
 /**
- * 6 人牌桌布局（纯 UI）
+ * 牌桌布局（纯 UI，可根据玩家人数自动调整）
  * - 自己永远在底部
  * - 其他玩家按顺时针 / 逆时针环绕
  */
@@ -37,17 +54,41 @@ export function SixPlayerTableLayout({
   lastPlay,
   lastPlayOwnerName,
 }: SixPlayerTableLayoutProps) {
-  if (players.length !== 6) {
+  const playerCount = players.length;
+
+  if (playerCount < MIN_SUPPORTED_PLAYERS) {
     return (
       <View style={styles.fallback}>
-        <Text>目前只支持 6 人牌桌</Text>
+        <Text>
+          房间至少需要 {MIN_SUPPORTED_PLAYERS} 名玩家才能展示牌桌（当前{" "}
+          {playerCount} 人）
+        </Text>
+      </View>
+    );
+  }
+
+  if (playerCount > MAX_SUPPORTED_PLAYERS) {
+    return (
+      <View style={styles.fallback}>
+        <Text>
+          目前仅支持 {MAX_SUPPORTED_PLAYERS} 人以内的牌桌（当前 {playerCount} 人）
+        </Text>
+      </View>
+    );
+  }
+
+  const seatLayout = seatLayouts[playerCount];
+  if (!seatLayout) {
+    return (
+      <View style={styles.fallback}>
+        <Text>暂不支持 {playerCount} 人的牌桌布局</Text>
       </View>
     );
   }
 
   const seatAssignments = players.map((player, index) => {
     const relative = (index - selfIndex + players.length) % players.length;
-    const seat = mapRelativeIndexToSeat(relative);
+    const seat = mapRelativeIndexToSeat(relative, seatLayout);
     const isCurrent = index === currentPlayerIndex;
     const isSelf = index === selfIndex;
 
@@ -56,6 +97,7 @@ export function SixPlayerTableLayout({
 
   const manualProps =
     manualPanelProps && manualPanelProps.player ? manualPanelProps : null;
+  const manualStatus = getManualStatusMessage(manualProps);
 
   return (
     <View style={styles.scene}>
@@ -63,17 +105,17 @@ export function SixPlayerTableLayout({
         <View style={styles.tableShadow} />
         <View style={styles.tableOuter}>
           <View style={styles.tableInner}>
-            <CentralControlArea
-              manualProps={manualProps}
+            <CenterRecentPlay
               lastPlay={lastPlay}
               lastPlayOwnerName={lastPlayOwnerName}
+              statusMessage={manualStatus}
             />
           </View>
         </View>
 
         {seatAssignments.map((assignment) => {
-          // Skip rendering the bottom self player seat, it will be shown in the central area
-          if (assignment.isSelf) return null;
+          // Skip rendering the bottom self player seat only when the manual panel is present
+          if (assignment.isSelf && manualProps) return null;
 
           return (
             <View
@@ -84,57 +126,50 @@ export function SixPlayerTableLayout({
             </View>
           );
         })}
+
+        {manualProps && (
+          <View style={styles.bottomHandOverlay}>
+            <ManualPlayerPanel {...manualProps} variant="standalone" />
+          </View>
+        )}
       </View>
     </View>
   );
 }
 
-function mapRelativeIndexToSeat(relativeIndex: number): SeatPosition {
-  switch (relativeIndex) {
-    case 0:
-      return "bottom";
-    case 1:
-      return "bottomRight";
-    case 2:
-      return "topRight";
-    case 3:
-      return "top";
-    case 4:
-      return "topLeft";
-    case 5:
-      return "bottomLeft";
-    default:
-      return "bottom";
+function mapRelativeIndexToSeat(
+  relativeIndex: number,
+  layout: SeatPosition[]
+): SeatPosition {
+  if (!layout.length) {
+    return "bottom";
   }
+  const normalizedIndex = Math.min(relativeIndex, layout.length - 1);
+  return layout[normalizedIndex] ?? "bottom";
 }
 
 type SeatOrientation = "top" | "bottom" | "left" | "right";
 
 interface PlayerSeatProps {
-  player: PlayerState;
+  player: TablePlayerState;
   isCurrent: boolean;
   isSelf: boolean;
   seat: SeatPosition;
 }
 
 function PlayerSeat({ player, isCurrent, isSelf, seat }: PlayerSeatProps) {
+  const isPlaceholder = Boolean(player.isPlaceholder);
   const orientation = seatToOrientation(seat);
-  const roleLabel = isSelf ? "真人玩家" : "电脑对手";
-  const avatarLetters =
-    player.name.length > 2 ? player.name.slice(0, 2) : player.name;
-
-  // For self player (bottom), only show hand cards
-  if (isSelf) {
-    return (
-      <View
-        style={[
-          styles.playerSeat,
-          styles.playerSeatBottom,
-          styles.selfSeatBottom,
-        ]}
-      ></View>
-    );
-  }
+  const roleLabel = isPlaceholder
+    ? "等待玩家入座"
+    : isSelf
+    ? "真人玩家"
+    : "电脑对手";
+  const avatarLetters = isPlaceholder
+    ? player.placeholderLabel ?? "待"
+    : player.name.length > 2
+    ? player.name.slice(0, 2)
+    : player.name;
 
   return (
     <View
@@ -146,10 +181,23 @@ function PlayerSeat({ player, isCurrent, isSelf, seat }: PlayerSeatProps) {
         orientation === "right" && styles.playerSeatRight,
         isSelf && styles.selfSeat,
         isCurrent && styles.currentSeat,
+        isPlaceholder && styles.placeholderSeat,
       ]}
     >
-      <View style={[styles.avatarWrapper, isSelf && styles.selfAvatar]}>
-        <Text style={[styles.avatarText, isSelf && styles.selfAvatarText]}>
+      <View
+        style={[
+          styles.avatarWrapper,
+          isSelf && styles.selfAvatar,
+          isPlaceholder && styles.placeholderAvatar,
+        ]}
+      >
+        <Text
+          style={[
+            styles.avatarText,
+            isSelf && styles.selfAvatarText,
+            isPlaceholder && styles.placeholderAvatarText,
+          ]}
+        >
           {avatarLetters}
         </Text>
       </View>
@@ -160,31 +208,45 @@ function PlayerSeat({ player, isCurrent, isSelf, seat }: PlayerSeatProps) {
             style={[styles.playerName, isSelf && styles.selfPlayerName]}
             numberOfLines={1}
           >
-            {isSelf ? `${player.name}（我）` : player.name}
+            {isPlaceholder
+              ? player.name
+              : isSelf
+              ? `${player.name}（我）`
+              : player.name}
           </Text>
-          {player.hasBlackA && <Text style={styles.blackABadge}>♠A</Text>}
+          {!isPlaceholder && player.hasBlackA && (
+            <Text style={styles.blackABadge}>♠A</Text>
+          )}
         </View>
 
         <View style={styles.roleRow}>
           <Text style={styles.roleLabel}>{roleLabel}</Text>
-          <View
-            style={[
-              styles.campTag,
-              player.camp === "A" ? styles.campA : styles.campB,
-            ]}
-          >
-            <Text style={styles.campText}>{player.camp} 阵营</Text>
-          </View>
+          {!isPlaceholder && (
+            <View
+              style={[
+                styles.campTag,
+                player.camp === "A" ? styles.campA : styles.campB,
+              ]}
+            >
+              <Text style={styles.campText}>{player.camp} 阵营</Text>
+            </View>
+          )}
         </View>
 
-        <View style={styles.handRow}>
-          <View style={styles.miniCards}>
-            {renderMiniCards(player.hand.length)}
+        {isPlaceholder ? (
+          <View style={styles.placeholderInfoRow}>
+            <Text style={styles.placeholderInfoText}>空位 · 等待加入</Text>
           </View>
-          <Text style={styles.handCount}>{player.hand.length} 张</Text>
-        </View>
+        ) : (
+          <View style={styles.handRow}>
+            <View style={styles.miniCards}>
+              {renderMiniCards(player.hand.length)}
+            </View>
+            <Text style={styles.handCount}>{player.hand.length} 张</Text>
+          </View>
+        )}
 
-        {player.finished && (
+        {!isPlaceholder && player.finished && (
           <View style={styles.finishTag}>
             <Text style={styles.finishText}>
               第{player.finishOrder ?? 1}个出完
@@ -238,59 +300,69 @@ function getPlayTypeLabel(playType?: Play["type"]): string {
   return labels[playType || ""] || "未知";
 }
 
-interface CentralControlAreaProps {
-  manualProps: ManualPlayerPanelProps | null;
-  lastPlay?: Play | null;
-  lastPlayOwnerName?: string;
+function getManualStatusMessage(
+  manualProps: ManualPlayerPanelProps | null
+): string | null {
+  if (!manualProps) return null;
+  const { request, triggerPlayerName } = manualProps;
+  if (!request) {
+    return "等待电脑执行";
+  }
+  if (request.context.type === "TURN") {
+    return "轮到你出牌啦";
+  }
+  return triggerPlayerName
+    ? `有人出完牌，问你要不要管（${triggerPlayerName}）`
+    : "有人出完牌，问你要不要管";
 }
 
-function CentralControlArea({
-  manualProps,
+interface CenterRecentPlayProps {
+  lastPlay?: Play | null;
+  lastPlayOwnerName?: string;
+  statusMessage?: string | null;
+}
+
+function CenterRecentPlay({
   lastPlay,
   lastPlayOwnerName,
-}: CentralControlAreaProps) {
+  statusMessage,
+}: CenterRecentPlayProps) {
   const lastPlayCards: Card[] = lastPlay?.cards ?? [];
+  const hasPlay = lastPlayCards.length > 0;
 
   return (
-    <View style={styles.centerArea}>
-      {lastPlay && (
-        <View style={styles.lastPlayPanel}>
-          <View style={styles.lastPlayHeader}>
-            <Text style={styles.lastPlayTitle}>
-              最近出牌 {lastPlayOwnerName ? `(${lastPlayOwnerName})` : ""}
-            </Text>
-            <Text style={styles.lastPlayMeta}>
-              {getPlayTypeLabel(lastPlay.type)} · {lastPlay.cards.length} 张
-            </Text>
+    <View style={styles.centerPlayRoot}>
+      <View style={styles.centerPlayGlow} />
+      <View style={styles.centerPlayPanel}>
+        {statusMessage && (
+          <View style={styles.centerStatusChip}>
+            <Text style={styles.centerStatusChipText}>{statusMessage}</Text>
           </View>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.lastPlayCardsRow}
-          >
-            {lastPlayCards.map((card) => (
-              <CardDisplay key={card.id} card={card} size="small" />
-            ))}
-          </ScrollView>
-        </View>
-      )}
-
-      {manualProps ? (
-        <ScrollView
-          style={styles.manualPanelScroll}
-          contentContainerStyle={styles.manualPanelScrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          <ManualPlayerPanel {...manualProps} variant="embedded" />
-        </ScrollView>
-      ) : (
-        <View style={styles.centerInfoPlaceholder}>
-          <Text style={styles.centerInfoTitle}>等待玩家进入</Text>
-          <Text style={styles.centerInfoHint}>
-            真人操作区会在你可行动时显示于此
-          </Text>
-        </View>
-      )}
+        )}
+        <Text style={styles.centerPlayTitle}>最近出牌</Text>
+        {hasPlay ? (
+          <>
+            <Text style={styles.centerPlayOwner}>
+              {lastPlayOwnerName ? `由 ${lastPlayOwnerName}` : "来自未知玩家"}
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.centerPlayCardsRow}
+              style={styles.centerPlayCardsScroll}
+            >
+              {lastPlayCards.map((card) => (
+                <CardDisplay key={card.id} card={card} size="small" />
+              ))}
+            </ScrollView>
+            <Text style={styles.centerPlayMeta}>
+              {getPlayTypeLabel(lastPlay?.type)} · {lastPlayCards.length} 张
+            </Text>
+          </>
+        ) : (
+          <Text style={styles.centerPlayEmpty}>等待新的出牌...</Text>
+        )}
+      </View>
     </View>
   );
 }
@@ -393,77 +465,82 @@ const styles = StyleSheet.create({
     paddingVertical: 22,
     paddingHorizontal: 18,
   },
-  centerInfoPlaceholder: {
-    width: "85%",
-    height: "72%",
-    borderRadius: 32,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.2)",
-    backgroundColor: "rgba(7, 11, 19, 0.65)",
-    justifyContent: "center",
+  centerPlayRoot: {
+    width: "80%",
+    maxWidth: 520,
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    justifyContent: "center",
+    position: "relative",
   },
-  centerInfoTitle: {
+  centerPlayGlow: {
+    position: "absolute",
+    width: "110%",
+    height: "110%",
+    borderRadius: 360,
+    backgroundColor: "rgba(250,204,21,0.2)",
+    shadowColor: "#FDE68A",
+    shadowOpacity: 0.35,
+    shadowRadius: 40,
+  },
+  centerPlayPanel: {
+    width: "100%",
+    borderRadius: 42,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.25)",
+    backgroundColor: "rgba(5, 9, 20, 0.85)",
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  centerStatusChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(34,197,94,0.25)",
+    borderWidth: 1,
+    borderColor: "rgba(34,197,94,0.45)",
+  },
+  centerStatusChipText: {
+    color: "#BBF7D0",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  centerPlayTitle: {
     fontSize: 22,
     fontWeight: "800",
     color: "#FCD34D",
-    marginBottom: 12,
   },
-  centerInfoHint: {
-    fontSize: 14,
-    color: "#E5E7EB",
-    textAlign: "center",
-    lineHeight: 20,
-  },
-  centerArea: {
-    width: "95%",
-    flex: 1,
-    maxHeight: "90%",
-    borderRadius: 36,
-    borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.2)",
-    backgroundColor: "rgba(5, 9, 20, 0.75)",
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    justifyContent: "flex-start",
-  },
-  lastPlayPanel: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-    backgroundColor: "rgba(17,24,39,0.75)",
-    padding: 12,
-    marginBottom: 12,
-  },
-  lastPlayHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  lastPlayTitle: {
-    color: "#FDE68A",
-    fontWeight: "700",
-    fontSize: 16,
-  },
-  lastPlayMeta: {
+  centerPlayOwner: {
     color: "#E0E7FF",
-    fontSize: 13,
+    fontSize: 14,
   },
-  lastPlayCardsRow: {
+  centerPlayCardsScroll: {
+    width: "100%",
+  },
+  centerPlayCardsRow: {
     flexDirection: "row",
     gap: 6,
     alignItems: "center",
+    paddingVertical: 6,
   },
-  manualPanelScroll: {
-    flex: 1,
-    width: "100%",
+  centerPlayMeta: {
+    color: "#94A3B8",
+    fontSize: 13,
   },
-  manualPanelScrollContent: {
-    flexGrow: 1,
-    paddingBottom: 12,
+  centerPlayEmpty: {
+    color: "#CBD5F5",
+    fontSize: 14,
+    marginTop: 6,
+  },
+  bottomHandOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 12,
+    paddingHorizontal: 24,
+    alignItems: "center",
   },
   seatBase: {
     position: "absolute",
@@ -514,6 +591,10 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 8,
   },
+  placeholderSeat: {
+    borderColor: "rgba(255,255,255,0.2)",
+    backgroundColor: "rgba(15,23,42,0.3)",
+  },
   avatarWrapper: {
     width: 48,
     height: 48,
@@ -530,6 +611,10 @@ const styles = StyleSheet.create({
     borderRadius: 34,
     backgroundColor: "#FDE047",
   },
+  placeholderAvatar: {
+    backgroundColor: "rgba(148,163,184,0.35)",
+    borderColor: "rgba(148,163,184,0.4)",
+  },
   avatarText: {
     fontSize: 16,
     fontWeight: "700",
@@ -537,6 +622,9 @@ const styles = StyleSheet.create({
   },
   selfAvatarText: {
     fontSize: 20,
+  },
+  placeholderAvatarText: {
+    color: "#E2E8F0",
   },
   seatInfo: {
     flex: 1,
@@ -595,6 +683,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     flex: 1, // Make the handRow fill the available space
+  },
+  placeholderInfoRow: {
+    marginTop: 6,
+  },
+  placeholderInfoText: {
+    color: "#CBD5F5",
+    fontSize: 12,
   },
   miniCards: {
     flexDirection: "row",

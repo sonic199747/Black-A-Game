@@ -17,6 +17,166 @@ export const homeStyles = StyleSheet.create({
     paddingBottom: 30,
   },
 
+  // ====== 房间管理 ======
+  roomManagerContainer: {
+    backgroundColor: "#0F172A",
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 16,
+  },
+  roomManagerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  roomManagerTitle: {
+    fontSize: 16,
+    color: "#BFDBFE",
+    fontWeight: "700",
+  },
+  connectionStatus: {
+    fontSize: 12,
+    color: "#93C5FD",
+    marginBottom: 8,
+  },
+  refreshButton: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "rgba(59,130,246,0.15)",
+    marginBottom: 8,
+  },
+  refreshButtonText: {
+    color: "#BFDBFE",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  roomCreateButton: {
+    backgroundColor: "#2563EB",
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  roomCreateButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+    fontSize: 12,
+  },
+  roomList: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  roomBadge: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#38BDF8",
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  roomBadgeActive: {
+    backgroundColor: "#38BDF8",
+  },
+  roomBadgeText: {
+    color: "#E0F2FE",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  roomBadgeTextActive: {
+    color: "#0C4A6E",
+  },
+  roomBadgeStatus: {
+    marginTop: 2,
+    fontSize: 11,
+    color: "#93C5FD",
+  },
+  roomBadgeStatusActive: {
+    color: "#0F172A",
+  },
+  roomSummaryGrid: {
+    marginTop: 12,
+    gap: 8,
+  },
+  roomSummaryCard: {
+    backgroundColor: "#1E293B",
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#334155",
+  },
+  roomSummaryTitle: {
+    color: "#E2E8F0",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  roomSummaryText: {
+    color: "#CBD5F5",
+    fontSize: 12,
+    marginTop: 4,
+  },
+  roomSummaryNote: {
+    color: "#93C5FD",
+    fontSize: 11,
+    marginTop: 4,
+    fontStyle: "italic",
+  },
+  joinControls: {
+    marginTop: 12,
+    backgroundColor: "#16223a",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "rgba(59,130,246,0.3)",
+  },
+  joinControlsTitle: {
+    color: "#E2E8F0",
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  joinInput: {
+    backgroundColor: "rgba(15,23,42,0.7)",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(59,130,246,0.4)",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    color: "#F8FAFC",
+    marginBottom: 10,
+  },
+  joinButtonRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  joinButton: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 999,
+    alignItems: "center",
+  },
+  joinManualButton: {
+    backgroundColor: "#C084FC",
+  },
+  joinAiButton: {
+    backgroundColor: "#34D399",
+  },
+  joinSelectButton: {
+    backgroundColor: "#FCD34D",
+    marginBottom: 10,
+  },
+  joinButtonText: {
+    color: "#0F172A",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  joinStatus: {
+    marginTop: 8,
+    fontSize: 12,
+    color: "#FDE68A",
+  },
+
   // ====== 标题部分 ======
   titleSection: {
     marginBottom: 16,
@@ -61,6 +221,39 @@ export const homeStyles = StyleSheet.create({
     fontWeight: "700",
     color: "#1F2937",
     marginBottom: 12,
+  },
+  tableStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  tableCountLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  tableCountSubLabel: {
+    fontSize: 12,
+    color: "#475569",
+    marginTop: 2,
+  },
+  startGameButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "#10B981",
+  },
+  startGameButtonDisabled: {
+    backgroundColor: "rgba(15,23,42,0.2)",
+  },
+  startGameButtonText: {
+    color: "#0F172A",
+    fontWeight: "700",
+  },
+  startGameButtonTextDisabled: {
+    color: "#94A3B8",
   },
   tableContainer: {
     borderRadius: 20,

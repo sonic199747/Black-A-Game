@@ -1,5 +1,6 @@
+import { Card } from "@/features/game/engine/cards";
 import { GameState } from "@/features/game/engine/gameEngineDemo";
-import React from "react";
+import React, { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 interface GameStatusPanelProps {
@@ -14,6 +15,28 @@ export function GameStatusPanel({ state }: GameStatusPanelProps) {
   const finishedCount = state.players.filter((p) => p.finished).length;
   const totalPlayers = state.players.length;
   const activeCount = totalPlayers - finishedCount;
+  const tributeSummary = state.tributeSummary;
+  const nameById = useMemo(() => {
+    const map = new Map<string, string>();
+    state.players.forEach((player) => {
+      map.set(player.id, player.name);
+    });
+    return map;
+  }, [state.players]);
+
+  const formatCardLabel = (card: Card) => {
+    const suitSymbol: Record<Card["suit"], string> = {
+      spade: "♠",
+      heart: "♥",
+      club: "♣",
+      diamond: "♦",
+      joker: "",
+    };
+
+    if (card.rank === "SJ") return "🃏小王";
+    if (card.rank === "BJ") return "🃏大王";
+    return `${suitSymbol[card.suit]}${card.rank}`;
+  };
 
   return (
     <View style={styles.container}>
@@ -26,6 +49,48 @@ export function GameStatusPanel({ state }: GameStatusPanelProps) {
           </Text>
         </View>
       </View>
+
+      {/* 进贡提示 */}
+      {tributeSummary && (
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>进贡阶段</Text>
+          <Text style={styles.tributeSummaryText}>
+            上局 {tributeSummary.winnerCamp} 阵营胜利，
+            {tributeSummary.caughtIds.length} 名玩家需要进贡
+          </Text>
+          <View style={styles.tributeList}>
+            {tributeSummary.exchanges.map((exchange) => (
+              <View key={exchange.giverId} style={styles.tributeCard}>
+                <Text style={styles.tributeGiver}>
+                  {exchange.giverName} 进贡
+                </Text>
+                <Text style={styles.tributeLine}>
+                  <Text style={styles.tributeLabel}>送出：</Text>
+                  {exchange.tributeCards
+                    .map((t) => {
+                      const receiverName =
+                        nameById.get(t.toId) ?? `${t.toId}`;
+                      return `${formatCardLabel(t.card)}→${receiverName}`;
+                    })
+                    .join("，")}
+                </Text>
+                <Text style={styles.tributeLine}>
+                  <Text style={styles.tributeLabel}>回赠：</Text>
+                  {exchange.returnCards.length > 0
+                    ? exchange.returnCards
+                        .map((t) => {
+                          const giverName =
+                            nameById.get(t.fromId) ?? `${t.fromId}`;
+                          return `${giverName}→${formatCardLabel(t.card)}`;
+                        })
+                        .join("，")
+                    : "胜利方暂未返还（无≤10的牌）"}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
 
       {/* 游戏进度 */}
       <View style={styles.section}>
@@ -196,6 +261,33 @@ const styles = StyleSheet.create({
   campRow: {
     flexDirection: "row",
     gap: 10,
+  },
+  tributeSummaryText: {
+    color: "#1F2937",
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  tributeList: {
+    gap: 8,
+  },
+  tributeCard: {
+    backgroundColor: "#EEF2FF",
+    borderRadius: 10,
+    padding: 10,
+  },
+  tributeGiver: {
+    fontWeight: "700",
+    color: "#1D4ED8",
+    marginBottom: 4,
+  },
+  tributeLine: {
+    color: "#1F2937",
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  tributeLabel: {
+    fontWeight: "600",
+    color: "#4C1D95",
   },
   handGrid: {
     flexDirection: "row",

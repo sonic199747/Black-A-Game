@@ -2,12 +2,15 @@ import { Card } from "../game/engine/cards";
 import {
   createInitialGame,
   DecisionFn,
+  GameEngine,
   GameState,
+  PreviousRoundSnapshot,
 } from "../game/engine/gameEngineDemo";
 import {
   ManualDecisionNeeded,
   ManualDecisionRequest,
 } from "../game/engine/manualController";
+import { Result } from "../game/engine/judgeResult";
 import { PlayerSession } from "./PlayerSession";
 
 export type RoomStatus = "WAITING" | "RUNNING" | "FINISHED";
@@ -16,6 +19,10 @@ export interface RoomOptions {
   id?: string;
   maxPlayers: number;
   label?: string;
+}
+
+export interface StartGameOptions {
+  previousRound?: PreviousRoundSnapshot | null;
 }
 
 export interface RoomEventHandlers {
@@ -51,12 +58,24 @@ export class RoomInstance {
     return this.status;
   }
 
+  setHandlers(handlers: RoomEventHandlers): void {
+    this.handlers = handlers;
+  }
+
   get players(): readonly PlayerSession[] {
     return this.sessions;
   }
 
   get state(): GameState | null {
     return this.latestState;
+  }
+
+  get engine(): GameEngine | null {
+    return this.engineWrapper?.engine ?? null;
+  }
+
+  get lastResult(): Result | null {
+    return this.engine?.lastResult ?? null;
   }
 
   addPlayer(session: PlayerSession): void {
@@ -84,7 +103,7 @@ export class RoomInstance {
     }
   }
 
-  startGame(): void {
+  startGame(options: StartGameOptions = {}): void {
     if (this.status !== "WAITING") {
       throw new Error("Room already running.");
     }
@@ -112,6 +131,7 @@ export class RoomInstance {
     this.engineWrapper = createInitialGame(this.maxPlayers, {
       controllers,
       playerNames,
+      previousRound: options.previousRound,
     });
     this.latestState = this.engineWrapper.state;
     this.status = "RUNNING";
@@ -169,6 +189,7 @@ export class RoomInstance {
         ...player,
         hand: [...player.hand],
       })),
+      result: this.engineWrapper.engine.lastResult ?? baseState.result ?? null,
     };
     this.handlers.onStateChange?.(this.latestState, this);
     if (this.latestState.gameOver && this.status !== "FINISHED") {

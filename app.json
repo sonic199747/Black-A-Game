@@ -3,7 +3,7 @@
     "name": "black-a-game",
     "slug": "black-a-game",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "landscape",
     "icon": "./assets/images/icon.png",
     "scheme": "blackagame",
     "userInterfaceStyle": "automatic",
