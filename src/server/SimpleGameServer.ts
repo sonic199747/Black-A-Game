@@ -6,7 +6,10 @@ import type {
   DecisionFn,
   GameState,
 } from "../shared/gameEngine/gameEngineDemo";
-import { createInitialGame } from "../shared/gameEngine/gameEngineDemo";
+import {
+  createInitialGame,
+  recommendPlay,
+} from "../shared/gameEngine/gameEngineDemo";
 
 // ==================== 协议定义 ====================
 
@@ -41,15 +44,17 @@ type ServerEvent = RoomServerEvent;
 class GameSession {
   readonly id: string;
   readonly displayName: string;
+  readonly isAI: boolean; // 标记是否为AI玩家
   isReady = false;
   seatIndex: number | null = null;
   playerId: string | null = null; // 游戏中的玩家 ID (P1, P2, etc.)
   pendingDecision: Card[] | null = null;
   decisionResolved = false; // 标记决策是否已被处理
 
-  constructor(id: string, displayName: string) {
+  constructor(id: string, displayName: string, isAI = false) {
     this.id = id;
     this.displayName = displayName;
+    this.isAI = isAI;
   }
 
   submitDecision(cards: Card[] | null) {
@@ -112,28 +117,52 @@ class GameRoom {
 
     const playerNames = this.sessions.map((s) => s.displayName);
 
+    // 清空所有玩家的决策状态
+    this.sessions.forEach((s) => s.clearDecision());
+
     // 创建决策控制器：为每个玩家创建一个决策函数
     const controllers: Partial<Record<string, DecisionFn>> = {};
     this.sessions.forEach((session, index) => {
       const playerId = `P${index + 1}`;
       session.playerId = playerId;
 
-      // 创建手动决策函数
-      controllers[playerId] = (state, playerIndex, context) => {
-        // 如果玩家已经提交了决策，返回它
-        if (session.pendingDecision !== null && !session.decisionResolved) {
-          const decision = session.pendingDecision;
-          session.markDecisionResolved();
-          console.log(
-            `[GameRoom] 玩家 ${session.displayName} 使用决策:`,
-            decision ? `${decision.length}张牌` : "过牌"
-          );
-          return decision;
-        }
+      if (session.isAI) {
+        // AI 玩家：使用智能决策
+        controllers[playerId] = (state, playerIndex, context) => {
+          try {
+            const decision = recommendPlay(state, playerIndex, context);
+            console.log(
+              `[GameRoom] AI ${session.displayName} (${playerId}) 决策:`,
+              decision ? `${decision.length}张牌` : "过牌",
+              `上下文: ${context.type}`
+            );
+            return decision;
+          } catch (error) {
+            console.error(
+              `[GameRoom] AI ${session.displayName} 决策失败:`,
+              error
+            );
+            return null; // 过牌
+          }
+        };
+      } else {
+        // 真人玩家：等待手动决策
+        controllers[playerId] = (state, playerIndex, context) => {
+          // 如果玩家已经提交了决策，返回它
+          if (session.pendingDecision !== null && !session.decisionResolved) {
+            const decision = session.pendingDecision;
+            session.markDecisionResolved();
+            console.log(
+              `[GameRoom] 玩家 ${session.displayName} 使用决策:`,
+              decision ? `${decision.length}张牌` : "过牌"
+            );
+            return decision;
+          }
 
-        // 否则返回 null，表示等待玩家决策
-        return null;
-      };
+          // 否则返回 null，表示等待玩家决策
+          return null;
+        };
+      }
     });
 
     this.gameWrapper = createInitialGame(this.maxPlayers, {
@@ -143,6 +172,17 @@ class GameRoom {
 
     this.status = "playing";
     console.log("[GameRoom] 游戏已开始，玩家:", playerNames);
+  }
+
+  // 游戏开始后的初始推进（让AI玩家自动执行到第一个真人玩家）
+  initialAdvance(): boolean {
+    if (!this.gameWrapper) {
+      console.error("[GameRoom] 游戏未开始，无法初始推进");
+      return false;
+    }
+
+    console.log("[GameRoom] 开始初始游戏推进...");
+    return this.advanceGame();
   }
 
   // 提交决策并推进游戏
@@ -187,6 +227,30 @@ class GameRoom {
         return true;
       }
 
+      // 获取当前玩家信息
+      const currentPlayerIndex = this.gameWrapper.state.currentPlayerIndex;
+      const currentPlayer = this.gameWrapper.state.players[currentPlayerIndex];
+      const currentSession = this.sessions.find(
+        (s) => s.playerId === currentPlayer.id
+      );
+
+      // 如果当前玩家是真人且未提交决策，等待
+      if (
+        currentSession &&
+        !currentSession.isAI &&
+        !currentSession.decisionResolved
+      ) {
+        console.log(
+          `[GameRoom] 等待玩家 ${currentSession.displayName} (${currentPlayer.id}) 决策，` +
+            `尝试次数: ${attempts}`
+        );
+        return true; // 需要等待玩家决策
+      }
+
+      // 记录执行前的状态，用于调试
+      const beforePlayerIndex = currentPlayerIndex;
+      const beforeGameOver = this.gameWrapper.state.gameOver;
+
       // 执行一个回合
       try {
         this.gameWrapper.engine.playAutoTurn();
@@ -195,17 +259,45 @@ class GameRoom {
         return false;
       }
 
-      // 检查当前玩家是否需要人工决策
-      const currentPlayerIndex = this.gameWrapper.state.currentPlayerIndex;
-      const currentPlayer = this.gameWrapper.state.players[currentPlayerIndex];
+      // 检查状态变化
+      const afterPlayerIndex = this.gameWrapper.state.currentPlayerIndex;
+      const afterGameOver = this.gameWrapper.state.gameOver;
 
-      // 如果当前玩家还没提交决策，等待
-      const currentSession = this.sessions.find(
-        (s) => s.playerId === currentPlayer.id
+      console.log(
+        `[GameRoom] 回合执行: 尝试${attempts}, ` +
+          `玩家 ${beforePlayerIndex} → ${afterPlayerIndex}, ` +
+          `游戏结束: ${afterGameOver}`
       );
-      if (currentSession && !currentSession.decisionResolved) {
-        console.log(`[GameRoom] 等待玩家 ${currentSession.displayName} 决策`);
-        return true; // 需要等待玩家决策
+
+      // 如果回合推进了或游戏结束了，清除所有玩家的决策标记
+      if (beforePlayerIndex !== afterPlayerIndex || afterGameOver) {
+        this.sessions.forEach((s) => {
+          if (s.decisionResolved) {
+            s.clearDecision();
+          }
+        });
+      }
+
+      // 如果状态完全没有变化，说明可能出现了死循环
+      if (
+        beforePlayerIndex === afterPlayerIndex &&
+        beforeGameOver === afterGameOver &&
+        !afterGameOver
+      ) {
+        console.error(
+          `[GameRoom] 警告：状态未改变！`,
+          `当前玩家: ${currentPlayer.name} (${currentPlayer.id})`,
+          `Session: ${
+            currentSession
+              ? `isAI=${currentSession.isAI}, resolved=${currentSession.decisionResolved}`
+              : "未找到"
+          }`
+        );
+        // 继续循环一次，看看下次是否能推进
+        if (attempts > 3) {
+          // 如果连续3次都没推进，则报错退出
+          return false;
+        }
       }
     }
 
@@ -231,14 +323,17 @@ class GameRoom {
         seatIndex: s.seatIndex,
         isReady: s.isReady,
         playerId: s.playerId,
+        isAI: s.isAI,
       })),
     };
 
     // 如果游戏已开始，包含游戏状态
     if (this.gameWrapper && this.status === "playing") {
+      // 创建游戏状态的深拷贝，确保React能检测到变化
+      const gameState = JSON.parse(JSON.stringify(this.gameWrapper.state));
       return {
         ...baseInfo,
-        gameState: this.gameWrapper.state,
+        gameState,
       };
     }
 
@@ -361,7 +456,13 @@ export class SimpleGameServer {
           const room = this.rooms.get(roomId);
           if (!room) throw new Error("房间不存在");
 
+          // 开始游戏
           room.startGame();
+
+          // 游戏开始后，立即推进游戏（AI会自动执行，直到遇到真人玩家）
+          const initialAdvance = room.initialAdvance();
+          console.log("[SimpleGameServer] 游戏初始推进结果:", initialAdvance);
+
           this.broadcastRoomState(roomId);
           return { success: true };
         }
@@ -403,6 +504,37 @@ export class SimpleGameServer {
           return { success: true, gameAdvanced };
         }
 
+        case "ADD_AI_PLAYER": {
+          const roomId = command.roomId || "default-room";
+          const room = this.rooms.get(roomId);
+          if (!room) throw new Error("房间不存在");
+
+          // 检查房间是否已满
+          const summary = room.getSummary();
+          if (summary.playerCount >= room.maxPlayers) {
+            throw new Error("房间已满，无法添加AI玩家");
+          }
+
+          // 生成AI玩家ID和昵称
+          const aiId = `ai-${Date.now()}-${Math.random()}`;
+          const aiName = command.displayName || `AI ${summary.playerCount + 1}`;
+
+          // 创建AI会话
+          const aiSession = new GameSession(aiId, aiName, true);
+          this.clients.set(aiId, aiSession);
+
+          // 加入房间
+          room.addPlayer(aiSession);
+
+          // AI自动准备
+          room.setReady(aiSession.id, true);
+
+          // 广播房间状态
+          this.broadcastRoomState(roomId);
+
+          return { success: true, aiId, aiName };
+        }
+
         case "GET_ROOM_STATE": {
           const roomId = command.roomId || "default-room";
           const room = this.rooms.get(roomId);
@@ -437,6 +569,7 @@ export class SimpleGameServer {
         displayName: p.displayName,
         seat: p.seatIndex ?? 0,
         isReady: p.isReady ?? false,
+        isAI: p.isAI ?? false,
       })),
       phase,
       gameSnapshot: summary.gameState || null,
@@ -450,12 +583,14 @@ export class SimpleGameServer {
 
     const summary = room.getSummary();
     const roomState = this.convertToRoomState(summary);
+    const summaryWithGame = summary as any; // 类型断言避免TypeScript错误
 
     console.log("[SimpleGameServer] 房间状态更新:", {
       roomId,
       playerCount: summary.playerCount,
       readyCount: summary.players.filter((p: any) => p.isReady).length,
       status: summary.status,
+      hasGameState: !!summaryWithGame.gameState,
     });
 
     // 找到房间内所有玩家的会话，给他们发送更新
@@ -465,7 +600,7 @@ export class SimpleGameServer {
     });
 
     // 发送 ROOM_STATE_UPDATED 事件
-    const event: RoomServerEvent = {
+    const roomStateEvent: RoomServerEvent = {
       kind: "ROOM_STATE_UPDATED",
       roomId,
       state: roomState,
@@ -475,8 +610,35 @@ export class SimpleGameServer {
     roomSessions.forEach((session) => {
       const send = this.clientSenders.get(session.id);
       if (send) {
-        send(event);
+        send(roomStateEvent);
       }
     });
+
+    // 如果游戏正在进行，额外发送 GAME_STATE_UPDATED 事件
+    if (summaryWithGame.gameState && summary.status === "playing") {
+      const gameStateEvent: RoomServerEvent = {
+        kind: "GAME_STATE_UPDATED",
+        roomId,
+        gameState: summaryWithGame.gameState,
+      };
+
+      roomSessions.forEach((session) => {
+        const send = this.clientSenders.get(session.id);
+        if (send) {
+          send(gameStateEvent);
+        }
+      });
+
+      console.log("[SimpleGameServer] 游戏状态已广播:", {
+        currentPlayer:
+          summaryWithGame.gameState.players[
+            summaryWithGame.gameState.currentPlayerIndex
+          ]?.name,
+        currentPlayerIndex: summaryWithGame.gameState.currentPlayerIndex,
+        playersHandCount: summaryWithGame.gameState.players.map(
+          (p: any) => `${p.name}:${p.hand?.length || 0}张`
+        ),
+      });
+    }
   }
 }

@@ -68,6 +68,7 @@ const cardFaceImages = {
   TS: require("../../../../assets/face/TS.png"),
 
   joker: require("../../../../assets/face/joker.png"),
+  Bjoker: require("../../../../assets/face/Bjoker.png"),
 } as const;
 
 type StandardSuit = Exclude<Card["suit"], "joker">;
@@ -98,7 +99,13 @@ const rankToSymbol: Record<StandardRank, string> = {
 };
 
 export function getCardImageSource(card: Card): ImageSourcePropType {
-  if (card.suit === "joker" || card.rank === "SJ" || card.rank === "BJ") {
+  // 大王 (Big Joker)
+  if (card.rank === "BJ") {
+    return cardFaceImages.Bjoker;
+  }
+  
+  // 小王 (Small Joker)
+  if (card.suit === "joker" || card.rank === "SJ") {
     return cardFaceImages.joker;
   }
 

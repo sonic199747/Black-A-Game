@@ -15,6 +15,7 @@ export interface RoomPlayer {
   displayName: string;
   seat: number;
   isReady: boolean;
+  isAI?: boolean; // 是否为AI玩家
 }
 
 /** 房间状态 */
@@ -46,4 +47,5 @@ export interface RoomGameViewModel {
   readyUp(): void;
   cancelReady(): void;
   startGame(): void;
+  addAI(): void; // 添加AI玩家
 }

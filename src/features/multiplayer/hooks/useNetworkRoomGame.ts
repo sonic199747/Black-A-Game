@@ -57,12 +57,20 @@ export function useNetworkRoomGame(
           break;
 
         case "ROOM_STATE_UPDATED":
-          console.log("[useNetworkRoomGame] 房间状态更新", event.state);
+          console.log("[useNetworkRoomGame] 房间状态更新", {
+            phase: event.state.phase,
+            hasGameSnapshot: !!event.state.gameSnapshot,
+            currentPlayer: event.state.gameSnapshot?.currentPlayerIndex,
+          });
           setRoomState(event.state);
           break;
 
         case "GAME_STATE_UPDATED":
-          console.log("[useNetworkRoomGame] 游戏状态更新");
+          console.log("[useNetworkRoomGame] 游戏状态更新", {
+            currentPlayer: event.gameState.currentPlayerIndex,
+            currentPlayerName:
+              event.gameState.players[event.gameState.currentPlayerIndex]?.name,
+          });
           setRoomState((prev) => ({
             ...prev,
             gameSnapshot: event.gameState,
@@ -154,6 +162,17 @@ export function useNetworkRoomGame(
     });
   }, [sendCommand, roomId]);
 
+  const addAI = useCallback(() => {
+    const aiCount = roomState.players.filter((p) => p.isAI).length;
+    sendCommand({
+      type: "ADD_AI_PLAYER",
+      roomId,
+      displayName: `AI ${aiCount + 1}`,
+    }).catch((error) => {
+      console.error("[useNetworkRoomGame] 添加AI失败:", error);
+    });
+  }, [sendCommand, roomId, roomState.players]);
+
   return {
     roomState,
     gameState: roomState.gameSnapshot,
@@ -164,5 +183,6 @@ export function useNetworkRoomGame(
     readyUp,
     cancelReady,
     startGame,
+    addAI,
   };
 }

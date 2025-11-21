@@ -139,11 +139,19 @@ export function SixPlayerTableLayout(props: SixPlayerTableLayoutProps) {
     const isCurrent = index === currentPlayerIndex;
     const isSelf = index === selfIndex;
 
-    // 查找该座位的准备状态
-    const readyState = seatReadyStates.find((s) => s.seatIndex === index);
-    const isReady = readyState?.isReady ?? false;
+    // 查找该座位的准备状态和AI状态（从 roomState 获取）
+    const roomPlayer = seatReadyStates.find((s) => s.seatIndex === index);
+    const isReady = roomPlayer?.isReady ?? false;
+    // 从 viewModel.roomState.players 中查找isAI信息
+    let isAI = false;
+    if ("viewModel" in props && props.viewModel.roomState) {
+      const rp = props.viewModel.roomState.players.find(
+        (p) => p.seat === index
+      );
+      isAI = rp?.isAI ?? false;
+    }
 
-    return { player, seat, isCurrent, isSelf, isReady };
+    return { player, seat, isCurrent, isSelf, isReady, isAI };
   });
 
   const manualProps =
@@ -207,6 +215,7 @@ interface PlayerSeatProps {
   isSelf: boolean;
   seat: SeatPosition;
   isReady?: boolean; // 准备状态
+  isAI?: boolean; // 是否为AI玩家
 }
 
 function PlayerSeat({
@@ -215,6 +224,7 @@ function PlayerSeat({
   isSelf,
   seat,
   isReady,
+  isAI,
 }: PlayerSeatProps) {
   const isPlaceholder = Boolean(player.isPlaceholder);
   const orientation = seatToOrientation(seat);
@@ -222,6 +232,8 @@ function PlayerSeat({
     ? "等待玩家入座"
     : isSelf
     ? "真人玩家"
+    : isAI
+    ? "AI对手"
     : "电脑对手";
   const avatarLetters = isPlaceholder
     ? player.placeholderLabel ?? "待"
@@ -288,6 +300,9 @@ function PlayerSeat({
               ? `${player.name}（我）`
               : player.name}
           </Text>
+          {!isPlaceholder && isAI && (
+            <Text style={styles.aiBadge}>🤖</Text>
+          )}
           {!isPlaceholder && player.hasBlackA && (
             <Text style={styles.blackABadge}>♠A</Text>
           )}
@@ -759,6 +774,10 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: "#991B1B",
     color: "#FFFFFF",
+  },
+  aiBadge: {
+    fontSize: 14,
+    marginLeft: 4,
   },
   roleRow: {
     flexDirection: "row",

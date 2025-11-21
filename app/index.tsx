@@ -297,12 +297,17 @@ function HomeScreenContent() {
               const totalPlayers = players.length;
               const allReady =
                 readyCount === totalPlayers && totalPlayers === PLAYER_COUNT;
+              const canAddAI = totalPlayers < PLAYER_COUNT;
 
               // 当前玩家的准备状态
               const myPlayer = players.find(
                 (p) => p.seat === onlineVm.mySeatIndex
               );
               const myReadyState = myPlayer?.isReady ?? false;
+
+              // 统计AI数量
+              const aiCount = players.filter((p) => p.isAI).length;
+              const humanCount = totalPlayers - aiCount;
 
               return (
                 <View
@@ -343,28 +348,46 @@ function HomeScreenContent() {
                       >
                         {myReadyState ? "✓ 你已准备" : "⏳ 你未准备"}
                       </Text>
+                      <Text
+                        style={{
+                          color: "#94A3B8",
+                          fontSize: 12,
+                          marginTop: 4,
+                        }}
+                      >
+                        真人：{humanCount} · AI：{aiCount}
+                      </Text>
                     </View>
 
-                    <View style={{ flexDirection: "row", gap: 8 }}>
-                      {!myReadyState ? (
+                    <View style={{ flexDirection: "column", gap: 8 }}>
+                      <View style={{ flexDirection: "row", gap: 8 }}>
+                        {!myReadyState ? (
+                          <Button
+                            title="准备"
+                            onPress={onlineVm.readyUp}
+                            color="#10B981"
+                          />
+                        ) : (
+                          <Button
+                            title="取消准备"
+                            onPress={onlineVm.cancelReady}
+                            color="#6B7280"
+                          />
+                        )}
                         <Button
-                          title="准备"
-                          onPress={onlineVm.readyUp}
-                          color="#10B981"
+                          title="开始游戏"
+                          onPress={onlineVm.startGame}
+                          disabled={!allReady}
+                          color={allReady ? "#3B82F6" : "#4B5563"}
                         />
-                      ) : (
+                      </View>
+                      {canAddAI && (
                         <Button
-                          title="取消准备"
-                          onPress={onlineVm.cancelReady}
-                          color="#6B7280"
+                          title="➕ 添加AI"
+                          onPress={onlineVm.addAI}
+                          color="#8B5CF6"
                         />
                       )}
-                      <Button
-                        title="开始游戏"
-                        onPress={onlineVm.startGame}
-                        disabled={!allReady}
-                        color={allReady ? "#3B82F6" : "#4B5563"}
-                      />
                     </View>
                   </View>
 
@@ -391,13 +414,95 @@ function HomeScreenContent() {
           )}
 
           {/* 联机牌桌：直接喂 viewModel（只在已加入房间后显示） */}
-          {!showRoomSelector && onlineRoomId !== "temp-room" && (
-            <View style={homeStyles.tableSection}>
-              <Text style={homeStyles.tableTitle}>👥 六人牌桌 · 联机</Text>
+          {!showRoomSelector &&
+            onlineRoomId !== "temp-room" &&
+            (() => {
+              const gameState = onlineVm.gameState;
+              if (!gameState) {
+                return (
+                  <View style={homeStyles.tableSection}>
+                    <Text style={homeStyles.tableTitle}>
+                      👥 六人牌桌 · 联机
+                    </Text>
+                    <SixPlayerTableLayout viewModel={onlineVm} />
+                  </View>
+                );
+              }
 
-              <SixPlayerTableLayout viewModel={onlineVm} />
-            </View>
-          )}
+              // 构建联机模式的 manualPanelProps
+              const players = gameState.players;
+              const mySeatIndex = onlineVm.mySeatIndex;
+              const myPlayer = mySeatIndex >= 0 ? players[mySeatIndex] : null;
+
+              let onlineManualProps: ManualPlayerPanelProps | null = null;
+              let onlineLastPlayOwnerName: string | undefined = undefined;
+
+              if (myPlayer) {
+                // 总是显示自己的手牌，但只有轮到自己时才能操作
+                onlineLastPlayOwnerName =
+                  gameState.lastPlayOwnerIndex != null
+                    ? players[gameState.lastPlayOwnerIndex]?.name
+                    : undefined;
+
+                const mustBeatCurrent = gameState.lastPlay != null;
+                const isMyTurn = gameState.currentPlayerIndex === mySeatIndex;
+
+                // 构建 request 用于 AI 推荐
+                const currentRequest = isMyTurn
+                  ? {
+                      type: mustBeatCurrent
+                        ? ("REACT" as const)
+                        : ("TURN" as const),
+                      playerIndex: mySeatIndex,
+                    }
+                  : null;
+
+                // 使用 AI 推荐判断是否有可管牌
+                let recommendedCards: Card[] | null = null;
+                let hasBeatablePlay = false;
+
+                if (currentRequest) {
+                  const recommendation = getRecommendationForManual(
+                    gameState as unknown as EngineGameState,
+                    currentRequest
+                  );
+                  recommendedCards = recommendation.recommendedCards;
+                  hasBeatablePlay = recommendation.hasBeatablePlay;
+                }
+
+                onlineManualProps = {
+                  player: myPlayer,
+                  // 只有轮到自己时才传 request，这样按钮才会启用
+                  request: currentRequest,
+                  lastPlay: gameState.lastPlay,
+                  mustBeatCurrent,
+                  hasBeatablePlay,
+                  triggerPlayerName: onlineLastPlayOwnerName,
+                  onSubmit: (cards) => {
+                    if (!cards || cards.length === 0) return;
+                    onlineVm.playCards(cards);
+                  },
+                  onPass: () => {
+                    onlineVm.pass();
+                  },
+                  onHintRequest: async (): Promise<Card[] | null> => {
+                    return recommendedCards ?? null;
+                  },
+                };
+              }
+
+              return (
+                <View style={homeStyles.tableSection}>
+                  <Text style={homeStyles.tableTitle}>👥 六人牌桌 · 联机</Text>
+                  <SixPlayerTableLayout
+                    viewModel={onlineVm}
+                    manualPanelProps={onlineManualProps}
+                    lastPlay={gameState.lastPlay}
+                    lastPlayOwnerName={onlineLastPlayOwnerName}
+                  />
+                </View>
+              );
+            })()}
         </>
       )}
 
