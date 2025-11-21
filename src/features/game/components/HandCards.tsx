@@ -1,6 +1,6 @@
+import type { Card } from "@/features/game/engine/cards";
 import React, { useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import type { Card } from "../engine/cards";
 import { CardDisplay } from "./CardDisplay";
 
 interface HandCardsProps {

@@ -5,10 +5,9 @@ import {
   createInitialGame,
   DecisionContext,
   GameState,
-  recommendPlay,
 } from "@/features/game/engine/gameEngineDemo";
-import { classifyPlay } from "@/features/game/engine/plays";
 import { Result } from "@/features/game/engine/judgeResult";
+import { classifyPlay } from "@/features/game/engine/plays";
 import {
   useNetworkRoomGame,
   type RoomGatewayConnectionState,
@@ -53,9 +52,10 @@ export interface NetworkGameStateResult {
   handleStartNextRound: () => void;
   handleNextTurn: () => void;
   submitManualDecision: (cards: Card[] | null) => void;
-  requestManualHint: () => Card[] | null;
+  requestManualHint: () => Promise<Card[] | null>;
   createRoom: ReturnType<typeof useNetworkRoomGame>["createRoom"];
   joinRoom: ReturnType<typeof useNetworkRoomGame>["joinRoom"];
+  refreshRooms: ReturnType<typeof useNetworkRoomGame>["refreshRooms"];
   startGame: ReturnType<typeof useNetworkRoomGame>["startGame"];
   playTurns: (runUntilManual?: boolean) => void;
   manualPlayerIndex: number | null;
@@ -109,6 +109,7 @@ export function useNetworkGameState(
     activeRoomId,
     activeRoomSummary,
     activeRoomState,
+    activeRoomSnapshot,
     manualRequest,
     activeSession,
     createRoom,
@@ -117,12 +118,28 @@ export function useNetworkGameState(
     startGame,
     playTurns: playTurnsCommand,
     submitManualDecision,
+    requestHint,
     selectRoom,
   } = useNetworkRoomGame({
     initialRoomId: options?.roomId ?? null,
     defaultDisplayName: displayName,
     defaultSessionKind: hasManualPlayer ? "MANUAL" : "AI",
   });
+
+  // 从服务器快照中确定自己的玩家索引
+  const actualManualPlayerIndex = useMemo(() => {
+    if (!activeRoomSnapshot || !activeSession) return normalizedHumanIndex;
+
+    // 从快照的 seats 信息中查找自己的座位索引
+    const seat = activeRoomSnapshot.seats.find(
+      (s) =>
+        s.state === "OCCUPIED" &&
+        s.controller?.kind === "HUMAN" &&
+        s.controller?.sessionId === activeSession.id
+    );
+
+    return seat ? seat.seatIndex : normalizedHumanIndex;
+  }, [activeRoomSnapshot, activeSession, normalizedHumanIndex]);
 
   const historyStoreRef = useRef<
     Map<string, { history: ManualActionLogEntry[]; nextId: number }>
@@ -255,8 +272,7 @@ export function useNetworkGameState(
     [ensureRoomReady, playTurnsCommand]
   );
 
-  const manualSessionId =
-    manualRequest?.sessionId ?? activeSession?.id ?? null;
+  const manualSessionId = manualRequest?.sessionId ?? activeSession?.id ?? null;
 
   const submitManual = useCallback(
     async (cards: Card[] | null) => {
@@ -266,7 +282,10 @@ export function useNetworkGameState(
       try {
         const roomId = await ensureRoomReady();
         if (!roomId) return;
-        await submitManualDecision(cards, { roomId, sessionId: manualSessionId });
+        await submitManualDecision(cards, {
+          roomId,
+          sessionId: manualSessionId,
+        });
       } catch (error) {
         console.warn("Failed to submit manual decision", error);
       }
@@ -335,9 +354,11 @@ export function useNetworkGameState(
     handleRestart();
   }, [handleRestart]);
 
-  const manualPlayerIndex = normalizedHumanIndex;
+  const manualPlayerIndex = actualManualPlayerIndex;
   const manualPlayer =
-    manualPlayerIndex !== null ? state.players[manualPlayerIndex] ?? null : null;
+    manualPlayerIndex !== null
+      ? state.players[manualPlayerIndex] ?? null
+      : null;
 
   const submitManualDecisionHandler = useCallback(
     (cards: Card[] | null) => {
@@ -352,40 +373,75 @@ export function useNetworkGameState(
         playType: classified?.type,
         contextType: manualRequest?.request?.context.type,
         note:
-          action === "PASS"
-            ? "选择 PASS"
-            : classified
-            ? undefined
-            : "自由出牌",
+          action === "PASS" ? "选择 PASS" : classified ? undefined : "自由出牌",
       });
       submitManual(cards);
     },
-    [appendManualHistory, hasManualPlayer, manualRequest?.request?.context.type, submitManual]
+    [
+      appendManualHistory,
+      hasManualPlayer,
+      manualRequest?.request?.context.type,
+      submitManual,
+    ]
   );
 
-  const requestManualHint = useCallback(() => {
+  const requestManualHint = useCallback(async () => {
     if (normalizedHumanIndex === null) return null;
-    const context: DecisionContext =
-      manualRequest?.request?.context ?? { type: "TURN" };
-    const recommendation = recommendPlay(state, normalizedHumanIndex, context);
-    if (recommendation) {
-      appendManualHistory({
-        action: "HINT",
-        cards: recommendation.map((card) => ({ ...card })),
-        playType: classifyPlay(recommendation)?.type,
-        contextType: context.type,
-        note: "请求智能提示",
-      });
-    } else {
+    const context: DecisionContext = manualRequest?.request?.context ?? {
+      type: "TURN",
+    };
+    try {
+      const roomId = await ensureRoomReady();
+      if (!roomId) return null;
+      const result = await requestHint({ roomId });
+      const recommendedCards =
+        result.cardIds?.map((cardId) => {
+          for (const player of state.players) {
+            const found = player.hand.find((card) => card.id === cardId);
+            if (found) {
+              return { ...found };
+            }
+          }
+          return null;
+        }) ?? [];
+      const filtered = recommendedCards.filter(
+        (card): card is Card => card !== null
+      );
+      if (filtered.length > 0) {
+        appendManualHistory({
+          action: "HINT",
+          cards: filtered,
+          playType: classifyPlay(filtered)?.type,
+          contextType: context.type,
+          note: "请求智能提示",
+        });
+        return filtered;
+      }
       appendManualHistory({
         action: "HINT",
         cards: [],
         contextType: context.type,
         note: "提示建议 PASS",
       });
+      return null;
+    } catch (error) {
+      console.warn("Failed to request hint from server", error);
+      appendManualHistory({
+        action: "HINT",
+        cards: [],
+        contextType: context.type,
+        note: "提示请求失败",
+      });
+      return null;
     }
-    return recommendation;
-  }, [appendManualHistory, manualRequest?.request?.context, normalizedHumanIndex, state]);
+  }, [
+    appendManualHistory,
+    ensureRoomReady,
+    manualRequest?.request?.context,
+    normalizedHumanIndex,
+    requestHint,
+    state.players,
+  ]);
 
   useEffect(() => {
     if (!options?.onStateSummary) return;

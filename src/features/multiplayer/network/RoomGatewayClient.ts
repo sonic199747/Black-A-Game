@@ -1,8 +1,12 @@
-import { GatewayCommand, GatewayRoomEvent } from "./InMemoryRoomGateway";
+import {
+  RoomCommand,
+  RoomServerEvent,
+} from "@/shared/network/roomMessages";
 
 type GatewayServerMessage =
   | { kind: "READY"; clientId: string }
-  | { kind: "GATEWAY_EVENT"; event: GatewayRoomEvent }
+  | { kind: "GATEWAY_EVENT"; event: RoomServerEvent }
+  | { kind: "ROOM_EVENT"; event: RoomServerEvent }
   | {
       kind: "COMMAND_RESULT";
       requestId?: string;
@@ -18,16 +22,16 @@ type GatewayServerMessage =
     };
 
 type GatewayCommandRequest =
-  | GatewayCommand
+  | RoomCommand
   | {
       requestId: string;
-      command: GatewayCommand;
+      command: RoomCommand;
     };
 
 type EventListener<T> = (value: T) => void;
 
 const DEFAULT_GATEWAY_URL =
-  process.env.EXPO_PUBLIC_GATEWAY_URL?.trim() || "ws://localhost:7070";
+  process.env.EXPO_PUBLIC_GATEWAY_URL?.trim() || "ws://localhost:9090";
 
 const READY_STATE_OPEN = 1;
 
@@ -55,7 +59,7 @@ export class RoomGatewayClient {
   private connectPromise?: Promise<string>;
   private requestCounter = 0;
 
-  private readonly eventListeners = new Set<EventListener<GatewayRoomEvent>>();
+  private readonly eventListeners = new Set<EventListener<RoomServerEvent>>();
   private readonly statusListeners = new Set<
     EventListener<RoomGatewayConnectionState>
   >();
@@ -142,7 +146,7 @@ export class RoomGatewayClient {
     this.handleDisconnect(new Error("Disconnected by client"));
   }
 
-  onEvent(listener: EventListener<GatewayRoomEvent>): () => void {
+  onEvent(listener: EventListener<RoomServerEvent>): () => void {
     this.eventListeners.add(listener);
     return () => this.eventListeners.delete(listener);
   }
@@ -154,7 +158,7 @@ export class RoomGatewayClient {
     return () => this.statusListeners.delete(listener);
   }
 
-  async sendCommand(command: GatewayCommand): Promise<unknown> {
+  async sendCommand(command: RoomCommand): Promise<unknown> {
     if (
       !this.socket ||
       this.socket.readyState !== READY_STATE_OPEN ||
@@ -212,7 +216,7 @@ export class RoomGatewayClient {
       return;
     }
 
-    if (message.kind === "GATEWAY_EVENT") {
+    if (message.kind === "GATEWAY_EVENT" || message.kind === "ROOM_EVENT") {
       this.eventListeners.forEach((listener) => listener(message!.event));
       return;
     }

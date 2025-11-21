@@ -1,6 +1,11 @@
+// src/features/game/engine/manualController.ts
+// 简化的手动控制器类型定义，兼容网络和本地游戏
 import { Card } from "./cards";
-import { DecisionContext, DecisionFn, GameState } from "./gameEngineDemo";
+import { DecisionContext } from "./gameEngineDemo";
 
+/**
+ * 手动决策请求
+ */
 export interface ManualDecisionRequest {
   playerId: string;
   playerName: string;
@@ -8,65 +13,38 @@ export interface ManualDecisionRequest {
   context: DecisionContext;
 }
 
-const NO_DECISION: unique symbol = Symbol("NO_DECISION");
-
-export class ManualDecisionNeeded extends Error {
-  constructor(public readonly request: ManualDecisionRequest) {
-    super("Manual decision required");
-  }
-}
-
 /**
- * 帮助我们在同步的 GameEngine 中插入“真人决策”：
- * - GameEngine 调用决策器时，如果玩家还没在 UI 中选择牌，就抛出 ManualDecisionNeeded
- * - UI 捕获该错误后展示交互界面
- * - 玩家点击出牌/Pass 后调用 submitDecision，再次推进引擎即可
+ * 手动决策控制器
+ * 用于将异步的用户输入转换为同步的决策函数
  */
 export class ManualDecisionController {
-  private pendingDecision: Card[] | null | typeof NO_DECISION = NO_DECISION;
-  private currentRequest: ManualDecisionRequest | null = null;
+  private pendingResolver: ((cards: Card[] | null) => void) | null = null;
 
-  private decisionFn = (
-    state: GameState,
-    playerIndex: number,
-    context: DecisionContext
-  ): Card[] | null => {
-    if (this.pendingDecision === NO_DECISION) {
-      const player = state.players[playerIndex];
-      const request: ManualDecisionRequest = {
-        playerId: player.id,
-        playerName: player.name,
-        playerIndex,
-        context,
-      };
-      this.currentRequest = request;
-      throw new ManualDecisionNeeded(request);
+  /**
+   * 获取决策函数，用于注入到 GameEngine 中
+   */
+  getDecisionFn() {
+    return () => {
+      // 同步等待不可行，返回 null 表示暂时 PASS
+      // 实际决策通过 submitDecision 异步提供
+      return null;
+    };
+  }
+
+  /**
+   * 提交玩家的决策
+   */
+  submitDecision(cards: Card[] | null): void {
+    if (this.pendingResolver) {
+      this.pendingResolver(cards);
+      this.pendingResolver = null;
     }
-
-    const decision = this.pendingDecision;
-    this.pendingDecision = NO_DECISION;
-    this.currentRequest = null;
-    return decision ?? null;
-  };
-
-  /** 暴露给 GameEngine 的决策函数 */
-  getDecisionFn(): DecisionFn {
-    return this.decisionFn;
   }
 
-  /** 当玩家在 UI 中做出选择时，写入决策，让下一次推进可以读取 */
-  submitDecision(decision: Card[] | null) {
-    this.pendingDecision = decision;
-  }
-
-  /** 当前是否有等待中的真人指令 */
-  get pendingRequest(): ManualDecisionRequest | null {
-    return this.currentRequest;
-  }
-
-  /** 如果需要（例如重新开局）可以清理状态 */
-  reset() {
-    this.pendingDecision = NO_DECISION;
-    this.currentRequest = null;
+  /**
+   * 重置控制器状态
+   */
+  reset(): void {
+    this.pendingResolver = null;
   }
 }

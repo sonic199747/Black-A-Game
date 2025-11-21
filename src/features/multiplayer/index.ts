@@ -1,10 +1,6 @@
-export * from "./PlayerSession";
-export * from "./RoomInstance";
-export * from "./RoomManager";
-export * from "./hooks/useLocalRoomGame";
-export * from "./hooks/useRoomGateway";
+// src/features/multiplayer/index.ts
+// 只导出 WebSocket 联机相关的模块
+
 export * from "./hooks/useNetworkRoomGame";
-export * from "./context/RoomManagerContext";
+export * from "./hooks/useRoomGateway";
 export * from "./types";
-export * from "./network/InMemoryRoomGateway";
-export * from "./network/RoomGatewayClient";

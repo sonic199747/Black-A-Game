@@ -1,252 +1,168 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+// src/features/multiplayer/hooks/useNetworkRoomGame.ts
+// 重写版本：直接使用 WebSocket 服务器，不再依赖本地 RoomManager
 
-import { Card } from "@/features/game/engine/cards";
-import { GameState } from "@/features/game/engine/gameEngineDemo";
-import { PlayerSessionKind } from "../PlayerSession";
-import { RoomSummary } from "../types";
-import { GatewayCommand } from "../network/InMemoryRoomGateway";
-import { RoomGatewayConnectionState } from "../network/RoomGatewayClient";
-import {
-  ManualRequestState,
-  RoomGatewayHookState,
-  UseRoomGatewayOptions,
-  useRoomGateway,
-} from "./useRoomGateway";
+import type { Card } from "@/features/game/engine/cards";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type {
+  RoomGameViewModel,
+  RoomState,
+} from "@/features/multiplayer/types";
+import { useRoomGateway } from "./useRoomGateway";
 
-export interface JoinedSessionInfo {
-  id: string;
-  roomId: string;
-  kind: PlayerSessionKind;
-  displayName: string;
-}
-
-export interface UseNetworkRoomGameOptions extends UseRoomGatewayOptions {
-  initialRoomId?: string | null;
-  defaultSessionKind?: PlayerSessionKind;
-  defaultDisplayName?: string;
-}
-
-export interface NetworkRoomGameState {
-  connectionState: RoomGatewayConnectionState;
-  clientId?: string;
-  rooms: RoomSummary[];
-  roomStates: Record<string, GameState>;
-  manualRequests: Record<string, ManualRequestState>;
-  activeRoomId: string | null;
-  activeRoomSummary: RoomSummary | null;
-  activeRoomState: GameState | null;
-  manualRequest: ManualRequestState | null;
-  activeSession: JoinedSessionInfo | null;
-  lastEvent: RoomGatewayHookState["lastEvent"];
-  selectRoom: (roomId: string | null) => void;
-  refreshRooms: () => Promise<RoomSummary[]>;
-  createRoom: (params?: { label?: string; maxPlayers?: number }) => Promise<string>;
-  joinRoom: (params: {
-    roomId: string;
-    kind?: PlayerSessionKind;
-    displayName?: string;
-    sessionId?: string;
-  }) => Promise<string>;
-  startGame: (roomId?: string | null) => Promise<void>;
-  playTurns: (options?: {
-    roomId?: string | null;
-    runUntilManual?: boolean;
-  }) => Promise<void>;
-  submitManualDecision: (
-    cards: Card[] | null,
-    options?: { roomId?: string | null; sessionId?: string }
-  ) => Promise<void>;
-  sendCommand: RoomGatewayHookState["sendCommand"];
-  connect: RoomGatewayHookState["connect"];
-  disconnect: RoomGatewayHookState["disconnect"];
-}
-
+/**
+ * 联机游戏 Hook - 直接与 WebSocket 服务器通信
+ */
 export function useNetworkRoomGame(
-  options: UseNetworkRoomGameOptions = {}
-): NetworkRoomGameState {
-  const {
-    initialRoomId = null,
-    defaultSessionKind = "MANUAL",
-    defaultDisplayName = "Player",
-    ...gatewayOptions
-  } = options;
+  roomId: string,
+  displayName: string
+): RoomGameViewModel {
+  const { client, clientId, connectionState, sendCommand } = useRoomGateway();
 
-  const gateway = useRoomGateway(gatewayOptions);
-  const {
-    rooms,
-    roomStates,
-    manualRequests,
-    lastEvent,
-    connectionState,
-    clientId,
-    connect,
-    disconnect,
-    sendCommand,
-  } = gateway;
+  const [roomState, setRoomState] = useState<RoomState>({
+    roomId,
+    ownerId: null,
+    players: [],
+    phase: "lobby",
+    gameSnapshot: null,
+  });
 
-  const [activeRoomId, setActiveRoomId] = useState<string | null>(
-    initialRoomId
-  );
-  const [activeSession, setActiveSession] = useState<JoinedSessionInfo | null>(
-    null
-  );
+  const joinedRef = useRef(false);
+  const currentRoomIdRef = useRef(roomId);
 
+  // 当房间 ID 变化时重置状态
   useEffect(() => {
-    if (initialRoomId) {
-      setActiveRoomId(initialRoomId);
+    if (currentRoomIdRef.current !== roomId) {
+      joinedRef.current = false;
+      currentRoomIdRef.current = roomId;
+      setRoomState({
+        roomId,
+        ownerId: null,
+        players: [],
+        phase: "lobby",
+        gameSnapshot: null,
+      });
     }
-  }, [initialRoomId]);
+  }, [roomId]);
 
+  // 监听服务器事件
   useEffect(() => {
-    setActiveSession((current) => {
-      if (!current) return current;
-      if (!activeRoomId || current.roomId !== activeRoomId) {
-        return null;
+    const unsubscribe = client.onServerEvent((event) => {
+      // 只处理当前房间的事件
+      if ("roomId" in event && event.roomId !== roomId) return;
+
+      switch (event.kind) {
+        case "ROOM_JOINED":
+          console.log("[useNetworkRoomGame] 成功加入房间", event.state);
+          setRoomState(event.state);
+          break;
+
+        case "ROOM_STATE_UPDATED":
+          console.log("[useNetworkRoomGame] 房间状态更新", event.state);
+          setRoomState(event.state);
+          break;
+
+        case "GAME_STATE_UPDATED":
+          console.log("[useNetworkRoomGame] 游戏状态更新");
+          setRoomState((prev) => ({
+            ...prev,
+            gameSnapshot: event.gameState,
+            phase: "playing",
+          }));
+          break;
+
+        case "ERROR":
+          console.error("[useNetworkRoomGame] 服务器错误:", event.message);
+          break;
       }
-      return current;
     });
-  }, [activeRoomId]);
 
-  const activeRoomSummary = useMemo(() => {
-    if (!activeRoomId) return null;
-    return rooms.find((room) => room.id === activeRoomId) ?? null;
-  }, [activeRoomId, rooms]);
+    return unsubscribe;
+  }, [client, roomId]);
 
-  const activeRoomState = activeRoomId ? roomStates[activeRoomId] ?? null : null;
-  const manualRequest = activeRoomId
-    ? manualRequests[activeRoomId] ?? null
-    : null;
+  // 自动加入房间（等待连接成功）
+  useEffect(() => {
+    if (!clientId) return;
+    if (connectionState !== "connected") return;
+    if (joinedRef.current) return;
+    if (roomId === "temp-room") return; // 占位房间不加入
 
-  const selectRoom = useCallback((roomId: string | null) => {
-    setActiveRoomId(roomId);
-  }, []);
+    console.log(`[useNetworkRoomGame] 加入房间: ${roomId}, 昵称: ${displayName}`);
+    joinedRef.current = true;
 
-  const refreshRooms = useCallback(() => {
-    return sendCommand<RoomSummary[]>({
-      type: "LIST_ROOMS",
+    sendCommand({
+      type: "JOIN_ROOM",
+      roomId,
+      displayName,
+    }).catch((error) => {
+      console.error("[useNetworkRoomGame] 加入房间失败:", error);
+      joinedRef.current = false;
     });
-  }, [sendCommand]);
+  }, [clientId, connectionState, roomId, displayName, sendCommand]);
 
-  const createRoom = useCallback(
-    async (params?: { label?: string; maxPlayers?: number }) => {
-      const roomId = await sendCommand<string>({
-        type: "CREATE_ROOM",
-        label: params?.label,
-        maxPlayers: params?.maxPlayers,
-      });
-      setActiveRoomId(roomId);
-      setActiveSession(null);
-      return roomId;
-    },
-    [sendCommand]
-  );
+  // 计算我的座位索引
+  const mySeatIndex = clientId
+    ? roomState.players.findIndex((p) => p.clientId === clientId)
+    : -1;
 
-  const joinRoom = useCallback(
-    async (params: {
-      roomId: string;
-      kind?: PlayerSessionKind;
-      displayName?: string;
-      sessionId?: string;
-    }) => {
-      const kind = params.kind ?? defaultSessionKind;
-      const displayName = params.displayName ?? defaultDisplayName;
-      const sessionId = await sendCommand<string>({
-        type: "JOIN_ROOM",
-        roomId: params.roomId,
-        sessionId: params.sessionId,
-        displayName,
-        kind,
-      });
-      setActiveRoomId(params.roomId);
-      setActiveSession({
-        id: sessionId,
-        roomId: params.roomId,
-        kind,
-        displayName,
-      });
-      return sessionId;
-    },
-    [defaultDisplayName, defaultSessionKind, sendCommand]
-  );
-
-  const ensureRoomId = useCallback(
-    (roomId?: string | null) => {
-      const resolved = roomId ?? activeRoomId;
-      if (!resolved) {
-        throw new Error("No active room selected");
-      }
-      return resolved;
-    },
-    [activeRoomId]
-  );
-
-  const startGame = useCallback(
-    async (roomId?: string | null) => {
-      const targetRoomId = ensureRoomId(roomId);
-      await sendCommand<void>({
-        type: "START_GAME",
-        roomId: targetRoomId,
-      });
-    },
-    [ensureRoomId, sendCommand]
-  );
-
-  const playTurns = useCallback(
-    async (options?: { roomId?: string | null; runUntilManual?: boolean }) => {
-      const targetRoomId = ensureRoomId(options?.roomId);
-      await sendCommand<void>({
-        type: "PLAY_TURN",
-        roomId: targetRoomId,
-        runUntilManual: options?.runUntilManual,
-      });
-    },
-    [ensureRoomId, sendCommand]
-  );
-
-  const submitManualDecision = useCallback(
-    async (
-      cards: Card[] | null,
-      options?: { roomId?: string | null; sessionId?: string }
-    ) => {
-      const targetRoomId = ensureRoomId(options?.roomId);
-      const fallbackSession =
-        options?.sessionId ??
-        activeSession?.id ??
-        manualRequests[targetRoomId]?.sessionId;
-      if (!fallbackSession) {
-        throw new Error("No manual session available");
-      }
-      await sendCommand<void>({
-        type: "SUBMIT_MANUAL",
-        roomId: targetRoomId,
-        sessionId: fallbackSession,
+  // 行为方法
+  const playCards = useCallback(
+    (cards: Card[]) => {
+      sendCommand({
+        type: "PLAY_CARDS",
+        roomId,
         cards,
+      }).catch((error) => {
+        console.error("[useNetworkRoomGame] 出牌失败:", error);
       });
     },
-    [activeSession?.id, ensureRoomId, manualRequests, sendCommand]
+    [sendCommand, roomId]
   );
+
+  const pass = useCallback(() => {
+    sendCommand({
+      type: "PASS",
+      roomId,
+    }).catch((error) => {
+      console.error("[useNetworkRoomGame] 过牌失败:", error);
+    });
+  }, [sendCommand, roomId]);
+
+  const readyUp = useCallback(() => {
+    sendCommand({
+      type: "READY_UP",
+      roomId,
+    }).catch((error) => {
+      console.error("[useNetworkRoomGame] 准备失败:", error);
+    });
+  }, [sendCommand, roomId]);
+
+  const cancelReady = useCallback(() => {
+    sendCommand({
+      type: "CANCEL_READY",
+      roomId,
+    }).catch((error) => {
+      console.error("[useNetworkRoomGame] 取消准备失败:", error);
+    });
+  }, [sendCommand, roomId]);
+
+  const startGame = useCallback(() => {
+    sendCommand({
+      type: "START_GAME",
+      roomId,
+    }).catch((error) => {
+      console.error("[useNetworkRoomGame] 开始游戏失败:", error);
+    });
+  }, [sendCommand, roomId]);
 
   return {
+    roomState,
+    gameState: roomState.gameSnapshot,
     connectionState,
-    clientId,
-    rooms,
-    roomStates,
-    manualRequests,
-    activeRoomId,
-    activeRoomSummary,
-    activeRoomState,
-    manualRequest,
-    activeSession,
-    lastEvent,
-    selectRoom,
-    refreshRooms,
-    createRoom,
-    joinRoom,
+    mySeatIndex,
+    playCards,
+    pass,
+    readyUp,
+    cancelReady,
     startGame,
-    playTurns,
-    submitManualDecision,
-    sendCommand: sendCommand as <T = unknown>(command: GatewayCommand) => Promise<T>,
-    connect,
-    disconnect,
   };
 }

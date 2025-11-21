@@ -48,27 +48,43 @@ export function GameResultPanel({ result, players }: GameResultPanelProps) {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>被抓玩家</Text>
+        <Text style={styles.sectionTitle}>
+          ⚠️ 被抓玩家 {caughtPlayers.length > 0 && `(${caughtPlayers.length}人)`}
+        </Text>
         {caughtPlayers.length === 0 ? (
-          <Text style={styles.emptyText}>无人被抓 👏</Text>
-        ) : (
-          <View style={styles.caughtRow}>
-            {caughtPlayers.map((player) => (
-              <View key={player.id} style={styles.caughtBadge}>
-                <Text style={styles.caughtName}>{player.name}</Text>
-                <Text style={styles.caughtCamp}>{player.camp} 阵营</Text>
-              </View>
-            ))}
+          <View style={styles.noCaughtContainer}>
+            <Text style={styles.noCaughtText}>✅ 无人被抓</Text>
+            <Text style={styles.noCaughtSubtext}>本局无进贡</Text>
           </View>
+        ) : (
+          <>
+            <View style={styles.caughtRow}>
+              {caughtPlayers.map((player, index) => (
+                <View key={player.id} style={styles.caughtBadge}>
+                  <Text style={styles.caughtNumber}>{index + 1}</Text>
+                  <View style={styles.caughtInfo}>
+                    <Text style={styles.caughtName}>❌ {player.name}</Text>
+                    <Text style={styles.caughtCamp}>{player.camp} 阵营</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+            <Text style={styles.caughtNote}>
+              💡 下一局这些玩家需要向胜方进贡
+            </Text>
+          </>
         )}
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>阵营存活</Text>
+        <Text style={styles.sectionTitle}>阵营详情</Text>
         <View style={styles.campRow}>
           {["A", "B"].map((camp) => {
             const campPlayers = players.filter((p) => p.camp === camp);
             const finished = campPlayers.filter((p) => p.finished).length;
+            const caughtInCamp = campPlayers.filter((p) =>
+              result.caught.includes(p.id)
+            ).length;
             return (
               <View
                 key={camp}
@@ -80,17 +96,27 @@ export function GameResultPanel({ result, players }: GameResultPanelProps) {
                 <Text style={styles.campTitle}>
                   {camp} 阵营 {finished}/{campPlayers.length}
                 </Text>
-                {campPlayers.map((player) => (
-                  <Text
-                    key={player.id}
-                    style={[
-                      styles.campPlayer,
-                      player.finished && styles.playerFinished,
-                    ]}
-                  >
-                    {player.name} {player.finished ? "✅" : "⏳"}
+                {caughtInCamp > 0 && (
+                  <Text style={styles.campCaughtInfo}>
+                    ⚠️ {caughtInCamp}人被抓
                   </Text>
-                ))}
+                )}
+                {campPlayers.map((player) => {
+                  const isCaught = result.caught.includes(player.id);
+                  return (
+                    <Text
+                      key={player.id}
+                      style={[
+                        styles.campPlayer,
+                        player.finished && styles.playerFinished,
+                        isCaught && styles.playerCaught,
+                      ]}
+                    >
+                      {player.name}{" "}
+                      {isCaught ? "❌" : player.finished ? "✅" : "⏳"}
+                    </Text>
+                  );
+                })}
               </View>
             );
           })}
@@ -152,26 +178,67 @@ const styles = StyleSheet.create({
   emptyText: {
     color: "#94A3B8",
   },
+  noCaughtContainer: {
+    backgroundColor: "rgba(16, 185, 129, 0.15)",
+    borderColor: "#10B981",
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  noCaughtText: {
+    color: "#10B981",
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  noCaughtSubtext: {
+    color: "#6EE7B7",
+    fontSize: 12,
+  },
   caughtRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8,
+    marginBottom: 8,
   },
   caughtBadge: {
-    backgroundColor: "rgba(239, 68, 68, 0.15)",
-    borderColor: "#F87171",
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(239, 68, 68, 0.2)",
+    borderColor: "#EF4444",
+    borderWidth: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    minWidth: 120,
+  },
+  caughtNumber: {
+    color: "#EF4444",
+    fontSize: 18,
+    fontWeight: "700",
+    marginRight: 10,
+  },
+  caughtInfo: {
+    flex: 1,
   },
   caughtName: {
-    color: "#F8FAFC",
-    fontWeight: "600",
+    color: "#FEE2E2",
+    fontWeight: "700",
+    fontSize: 14,
+    marginBottom: 2,
   },
   caughtCamp: {
-    color: "#FECACA",
+    color: "#FCA5A5",
+    fontSize: 11,
+  },
+  caughtNote: {
+    color: "#FCD34D",
     fontSize: 12,
+    fontStyle: "italic",
+    textAlign: "center",
+    marginTop: 4,
   },
   campRow: {
     flexDirection: "row",
@@ -191,6 +258,13 @@ const styles = StyleSheet.create({
   campTitle: {
     fontWeight: "700",
     color: "#F8FAFC",
+    marginBottom: 4,
+    fontSize: 14,
+  },
+  campCaughtInfo: {
+    color: "#FCA5A5",
+    fontSize: 11,
+    fontWeight: "600",
     marginBottom: 6,
   },
   campPlayer: {
@@ -200,5 +274,9 @@ const styles = StyleSheet.create({
   },
   playerFinished: {
     color: "#86EFAC",
+  },
+  playerCaught: {
+    color: "#FCA5A5",
+    fontWeight: "700",
   },
 });

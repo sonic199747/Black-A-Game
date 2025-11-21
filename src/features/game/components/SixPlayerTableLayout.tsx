@@ -2,6 +2,7 @@
 import type { Card } from "@/features/game/engine/cards";
 import { PlayerState } from "@/features/game/engine/gameEngineDemo";
 import type { Play } from "@/features/game/engine/plays";
+import type { RoomGameViewModel } from "@/features/multiplayer/types";
 import React from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { CardDisplay } from "./CardDisplay";
@@ -32,28 +33,73 @@ const seatLayouts: Record<number, SeatPosition[]> = {
   6: ["bottom", "bottomRight", "topRight", "top", "topLeft", "bottomLeft"],
 };
 
-interface SixPlayerTableLayoutProps {
-  players: TablePlayerState[]; // 按 game state 顺序排的玩家（可包含占位符）
-  currentPlayerIndex: number; // 当前出牌玩家的索引
-  selfIndex: number; // “我”在 players 数组里的索引
+// 公共 props：manualPanel、最近出牌等
+interface SixPlayerTableLayoutCommonProps {
   manualPanelProps?: ManualPlayerPanelProps | null;
   lastPlay?: Play | null;
   lastPlayOwnerName?: string;
 }
+
+// 座位准备状态（从 RoomState.seats 获取）
+interface SeatReadyState {
+  seatIndex: number;
+  isReady: boolean;
+}
+
+// ✅ 支持两种用法：旧的（直接给 players），新的（传 viewModel）
+export type SixPlayerTableLayoutProps =
+  | (SixPlayerTableLayoutCommonProps & {
+      players: TablePlayerState[]; // 按 game state 顺序排的玩家（可包含占位符）
+      currentPlayerIndex: number; // 当前出牌玩家的索引
+      selfIndex: number; // “我”在 players 数组里的索引
+    })
+  | (SixPlayerTableLayoutCommonProps & {
+      viewModel: RoomGameViewModel; // 直接喂联机 / 本地的 ViewModel
+    });
 
 /**
  * 牌桌布局（纯 UI，可根据玩家人数自动调整）
  * - 自己永远在底部
  * - 其他玩家按顺时针 / 逆时针环绕
  */
-export function SixPlayerTableLayout({
-  players,
-  currentPlayerIndex,
-  selfIndex,
-  manualPanelProps,
-  lastPlay,
-  lastPlayOwnerName,
-}: SixPlayerTableLayoutProps) {
+export function SixPlayerTableLayout(props: SixPlayerTableLayoutProps) {
+  const { manualPanelProps, lastPlay, lastPlayOwnerName } = props;
+
+  let players: TablePlayerState[];
+  let currentPlayerIndex: number;
+  let selfIndex: number;
+  let seatReadyStates: SeatReadyState[] = []; // 准备状态映射
+
+  // 🔁 新用法：从 RoomGameViewModel 里取数据
+  if ("viewModel" in props) {
+    const { viewModel } = props;
+    const gameState = viewModel.gameState;
+
+    if (!gameState) {
+      // 房间已连上但是游戏还没开始时的状态
+      return (
+        <View style={styles.fallback}>
+          <Text>游戏尚未开始，等待房主开局...</Text>
+        </View>
+      );
+    }
+
+    players = gameState.players as TablePlayerState[];
+    currentPlayerIndex = gameState.currentPlayerIndex;
+    selfIndex = viewModel.mySeatIndex;
+
+    // 从 roomState.players 提取准备状态
+    seatReadyStates = (viewModel.roomState?.players ?? []).map((player) => ({
+      seatIndex: player.seat,
+      isReady: player.isReady ?? false,
+    }));
+  } else {
+    // 🔁 旧用法：保持你之前的接口不变
+    players = props.players;
+    currentPlayerIndex = props.currentPlayerIndex;
+    selfIndex = props.selfIndex;
+  }
+
   const playerCount = players.length;
 
   if (playerCount < MIN_SUPPORTED_PLAYERS) {
@@ -71,7 +117,8 @@ export function SixPlayerTableLayout({
     return (
       <View style={styles.fallback}>
         <Text>
-          目前仅支持 {MAX_SUPPORTED_PLAYERS} 人以内的牌桌（当前 {playerCount} 人）
+          目前仅支持 {MAX_SUPPORTED_PLAYERS} 人以内的牌桌（当前 {playerCount}{" "}
+          人）
         </Text>
       </View>
     );
@@ -92,7 +139,11 @@ export function SixPlayerTableLayout({
     const isCurrent = index === currentPlayerIndex;
     const isSelf = index === selfIndex;
 
-    return { player, seat, isCurrent, isSelf };
+    // 查找该座位的准备状态
+    const readyState = seatReadyStates.find((s) => s.seatIndex === index);
+    const isReady = readyState?.isReady ?? false;
+
+    return { player, seat, isCurrent, isSelf, isReady };
   });
 
   const manualProps =
@@ -114,7 +165,7 @@ export function SixPlayerTableLayout({
         </View>
 
         {seatAssignments.map((assignment) => {
-          // Skip rendering the bottom self player seat only when the manual panel is present
+          // 有手牌操作面板时，不重复渲染底部自家座位
           if (assignment.isSelf && manualProps) return null;
 
           return (
@@ -155,9 +206,16 @@ interface PlayerSeatProps {
   isCurrent: boolean;
   isSelf: boolean;
   seat: SeatPosition;
+  isReady?: boolean; // 准备状态
 }
 
-function PlayerSeat({ player, isCurrent, isSelf, seat }: PlayerSeatProps) {
+function PlayerSeat({
+  player,
+  isCurrent,
+  isSelf,
+  seat,
+  isReady,
+}: PlayerSeatProps) {
   const isPlaceholder = Boolean(player.isPlaceholder);
   const orientation = seatToOrientation(seat);
   const roleLabel = isPlaceholder
@@ -184,22 +242,38 @@ function PlayerSeat({ player, isCurrent, isSelf, seat }: PlayerSeatProps) {
         isPlaceholder && styles.placeholderSeat,
       ]}
     >
-      <View
-        style={[
-          styles.avatarWrapper,
-          isSelf && styles.selfAvatar,
-          isPlaceholder && styles.placeholderAvatar,
-        ]}
-      >
-        <Text
+      <View style={styles.avatarContainer}>
+        <View
           style={[
-            styles.avatarText,
-            isSelf && styles.selfAvatarText,
-            isPlaceholder && styles.placeholderAvatarText,
+            styles.avatarWrapper,
+            isSelf && styles.selfAvatar,
+            isPlaceholder && styles.placeholderAvatar,
           ]}
         >
-          {avatarLetters}
-        </Text>
+          <Text
+            style={[
+              styles.avatarText,
+              isSelf && styles.selfAvatarText,
+              isPlaceholder && styles.placeholderAvatarText,
+            ]}
+          >
+            {avatarLetters}
+          </Text>
+        </View>
+
+        {/* 准备状态指示器 */}
+        {!isPlaceholder && isReady !== undefined && (
+          <View
+            style={[
+              styles.readyBadge,
+              isReady ? styles.readyBadgeReady : styles.readyBadgeNotReady,
+            ]}
+          >
+            <Text style={styles.readyBadgeText}>
+              {isReady ? "✓" : "○"}
+            </Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.seatInfo}>
@@ -304,13 +378,20 @@ function getManualStatusMessage(
   manualProps: ManualPlayerPanelProps | null
 ): string | null {
   if (!manualProps) return null;
-  const { request, triggerPlayerName } = manualProps;
+
+  const { request, triggerPlayerName, player } = manualProps;
   if (!request) {
     return "等待电脑执行";
   }
-  if (request.context.type === "TURN") {
-    return "轮到你出牌啦";
+
+  const anyRequest = request as any;
+  const ctxType: string | undefined = anyRequest?.context?.type;
+  const playerName = player?.name ?? "某位玩家";
+
+  if (ctxType === "TURN") {
+    return `轮到 ${playerName} 出牌`;
   }
+
   return triggerPlayerName
     ? `有人出完牌，问你要不要管（${triggerPlayerName}）`
     : "有人出完牌，问你要不要管";
@@ -424,10 +505,10 @@ const styles = StyleSheet.create({
   },
   tableWrapper: {
     flex: 1,
-    marginTop: 0, // Removed margin to make the table fill the layout
+    marginTop: 0,
     marginBottom: 0,
     position: "relative",
-    height: "100%", // Adjusted height to fill the layout
+    height: "100%",
     paddingHorizontal: 4,
   },
   tableShadow: {
@@ -595,6 +676,9 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.2)",
     backgroundColor: "rgba(15,23,42,0.3)",
   },
+  avatarContainer: {
+    position: "relative",
+  },
   avatarWrapper: {
     width: 48,
     height: 48,
@@ -604,6 +688,29 @@ const styles = StyleSheet.create({
     alignItems: "center",
     borderWidth: 2,
     borderColor: "#FED7AA",
+  },
+  readyBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+  readyBadgeReady: {
+    backgroundColor: "#10B981",
+  },
+  readyBadgeNotReady: {
+    backgroundColor: "#6B7280",
+  },
+  readyBadgeText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   selfAvatar: {
     width: 68,
@@ -682,7 +789,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    flex: 1, // Make the handRow fill the available space
+    flex: 1,
   },
   placeholderInfoRow: {
     marginTop: 6,

@@ -1,31 +1,33 @@
-import { Card, compareCard } from "@/features/game/engine/cards";
-import { PlayerState } from "@/features/game/engine/gameEngineDemo";
-import { ManualDecisionRequest } from "@/features/game/engine/manualController";
-import { Play, canBeat, classifyPlay } from "@/features/game/engine/plays";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+
+import { Card, compareCard } from "@/features/game/engine/cards";
+import { PlayerState } from "@/features/game/engine/gameEngineDemo";
+import { ManualDecisionNeeded } from "@/features/game/hooks/useGameState";
+import { Play, canBeat, classifyPlay } from "@/features/game/engine/plays";
+
 import { HandCards } from "./HandCards";
 
 const PLAYFUL_FONT_FAMILY = "KeinannMaruPOP";
-
 export interface ManualPlayerPanelProps {
   player: PlayerState | null;
-  request: ManualDecisionRequest | null;
+  request: ManualDecisionNeeded | null; // ✅ 和引擎里的类型对上
   lastPlay: Play | null;
   mustBeatCurrent: boolean;
+  hasBeatablePlay?: boolean;
   triggerPlayerName?: string;
   onSubmit: (cards: Card[]) => void;
   onPass: () => void;
-  onHintRequest?: () => Card[] | null;
+  onHintRequest?: () => Promise<Card[] | null>;
   variant?: "standalone" | "embedded";
 }
-
 export function ManualPlayerPanel({
   player,
   request,
   lastPlay,
   mustBeatCurrent,
+  hasBeatablePlay = true,
   onSubmit,
   onPass,
   onHintRequest,
@@ -33,7 +35,12 @@ export function ManualPlayerPanel({
 }: ManualPlayerPanelProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  const actionable = Boolean(request && player);
+  // 只要有玩家数据，就可以整理和查看手牌
+  const canInteractWithCards = Boolean(player);
+  // 只有轮到该玩家出牌时（request 存在），才能操作按钮
+  const canOperateButtons = Boolean(request && player);
+  // 只有 REACT 阶段（跟牌阶段）才能 PASS
+  const canPass = !!request && request.type === "REACT";
 
   const sortedHand = useMemo(() => {
     if (!player) return [];
@@ -56,7 +63,7 @@ export function ManualPlayerPanel({
     (selectionPlay ? canBeat(lastPlay, selectionPlay) : false);
 
   const canSubmit =
-    actionable &&
+    canOperateButtons &&
     selectedCards.length > 0 &&
     Boolean(selectionPlay) &&
     meetsTableRequirement;
@@ -72,7 +79,8 @@ export function ManualPlayerPanel({
   }, [player]);
 
   const toggleCard = (cardId: string) => {
-    if (!actionable) return;
+    // 允许所有玩家都能整理和查看手牌，即使不是自己的回合
+    if (!canInteractWithCards) return;
     setSelectedIds((prev) =>
       prev.includes(cardId)
         ? prev.filter((id) => id !== cardId)
@@ -88,116 +96,203 @@ export function ManualPlayerPanel({
   };
 
   const handlePass = () => {
-    if (!request) return;
+    // 如果根本轮不到这个玩家（按钮其实也会是 disabled），就直接返回
+    // TURN 阶段禁止 PASS：再加一层保护
+    if (!request || !canOperateButtons || !canPass) return;
     Haptics.selectionAsync().catch(() => {});
     setSelectedIds([]);
     onPass();
   };
 
   const handleHint = () => {
-    if (!actionable || !onHintRequest) return;
-    const recommendation = onHintRequest();
-    if (recommendation && recommendation.length > 0) {
-      const ids = recommendation.map((card) => card.id);
-      setSelectedIds(ids);
-    } else {
-      setSelectedIds([]);
-    }
+    if (!canOperateButtons || !onHintRequest) return;
+    onHintRequest()
+      .then((recommendation) => {
+        if (recommendation && recommendation.length > 0) {
+          const ids = recommendation.map((card) => card.id);
+          setSelectedIds(ids);
+        } else {
+          setSelectedIds([]);
+        }
+      })
+      .catch((error) => {
+        console.warn("Hint request failed", error);
+      });
   };
+
+  const handleClear = () => {
+    if (selectedIds.length === 0) return;
+    Haptics.selectionAsync().catch(() => {});
+    setSelectedIds([]);
+  };
+
+  // 跳过按钮的显示逻辑：
+  // 1. 必须轮到该玩家出牌（canOperateButtons 为 true）
+  // 2. 必须是在"跟牌"的场景（mustBeatCurrent 为 true，即桌面上已有上一手牌）
+  // 3. 如果是主动出牌（mustBeatCurrent 为 false），则不显示跳过按钮
+  // 注意：当轮到玩家管牌时，无论是否有可以管的牌，都应该显示跳过按钮
+  const shouldShowPassButton = canOperateButtons && canPass;
+
+  useEffect(() => {
+    if (canOperateButtons) {
+      console.log("🔍 跳过按钮调试信息:", {
+        canOperateButtons,
+        mustBeatCurrent,
+        shouldShowPassButton,
+        hasLastPlay: !!lastPlay,
+        request, // 直接把整个 request 打出来
+      });
+    }
+  }, [
+    canOperateButtons,
+    mustBeatCurrent,
+    shouldShowPassButton,
+    request,
+    lastPlay,
+  ]);
+
+  // 调试信息：专门看这个面板当前拿到的 request 是不是给自己的
+  useEffect(() => {
+    console.log("🧪 ManualPanel debug:", {
+      playerName: player?.name,
+      playerFinished: player?.finished,
+      hasRequest: !!request,
+      requestPlayerIndex: request?.playerIndex,
+      mustBeatCurrent,
+    });
+  }, [player, request, mustBeatCurrent]);
+
+  // 当轮到玩家管牌时，如果没有可以管的牌，显示提示语
+  const shouldShowNoBeatablePlayHint =
+    canOperateButtons && mustBeatCurrent && !hasBeatablePlay;
 
   const handSection =
     variant === "embedded" ? (
       <View style={styles.embeddedHandSection}>
+        {shouldShowNoBeatablePlayHint && (
+          <Text style={styles.hintText}>没有可以大过上家的牌</Text>
+        )}
         <View style={styles.compactActionRow}>
-          <TouchableOpacity
-            style={[
-              styles.compactActionButton,
-              styles.compactPassButton,
-              !actionable && styles.buttonDisabled,
-            ]}
-            onPress={handlePass}
-            disabled={!actionable}
-          >
-            <Text style={styles.compactActionText}>不出</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.compactActionButton,
-              styles.compactHintButton,
-              (!actionable || !onHintRequest) && styles.buttonDisabled,
-            ]}
-            onPress={handleHint}
-            disabled={!actionable || !onHintRequest}
-          >
-            <Text
-              style={[styles.compactActionText, styles.compactHintButtonText]}
+          {shouldShowPassButton && (
+            <TouchableOpacity
+              style={[
+                styles.compactActionButton,
+                styles.compactPassButton,
+                (!canOperateButtons || !canPass) && styles.buttonDisabled,
+              ]}
+              onPress={handlePass}
+              disabled={!canOperateButtons || !canPass}
             >
-              提示
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.compactActionButton,
-              styles.compactPlayButton,
-              (!canSubmit || selectedCards.length === 0) &&
-                styles.buttonDisabled,
-            ]}
-            onPress={handleSubmit}
-            disabled={!canSubmit}
-          >
-            <Text style={styles.compactActionText}>出牌</Text>
-          </TouchableOpacity>
+              <Text style={styles.compactActionText}>不出</Text>
+            </TouchableOpacity>
+          )}
+          {canOperateButtons && (
+            <TouchableOpacity
+              style={[
+                styles.compactActionButton,
+                styles.compactHintButton,
+                !onHintRequest && styles.buttonDisabled,
+              ]}
+              onPress={handleHint}
+              disabled={!onHintRequest}
+            >
+              <Text
+                style={[styles.compactActionText, styles.compactHintButtonText]}
+              >
+                提示
+              </Text>
+            </TouchableOpacity>
+          )}
+          {canOperateButtons && (
+            <TouchableOpacity
+              style={[
+                styles.compactActionButton,
+                styles.compactPlayButton,
+                (!canSubmit || selectedCards.length === 0) &&
+                  styles.buttonDisabled,
+              ]}
+              onPress={handleSubmit}
+              disabled={!canSubmit}
+            >
+              <Text style={styles.compactActionText}>出牌</Text>
+            </TouchableOpacity>
+          )}
+          {selectedIds.length > 0 && (
+            <TouchableOpacity
+              style={[styles.compactActionButton, styles.compactClearButton]}
+              onPress={handleClear}
+            >
+              <Text style={styles.compactActionText}>清除</Text>
+            </TouchableOpacity>
+          )}
         </View>
         <HandCards
           cards={sortedHand}
           selectedIds={selectedIds}
           onToggleSelect={toggleCard}
-          actionable={actionable}
+          actionable={canInteractWithCards}
         />
       </View>
     ) : (
       <>
+        {shouldShowNoBeatablePlayHint && (
+          <Text style={styles.hintText}>没有可以大过上家的牌</Text>
+        )}
         <View style={styles.tableActionRow}>
-          <TouchableOpacity
-            style={[
-              styles.tableActionButton,
-              styles.tablePassButton,
-              !actionable && styles.buttonDisabled,
-            ]}
-            onPress={handlePass}
-            disabled={!actionable}
-          >
-            <Text style={styles.tableActionText}>不出</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.tableActionButton,
-              styles.tableHintButton,
-              (!actionable || !onHintRequest) && styles.buttonDisabled,
-            ]}
-            onPress={handleHint}
-            disabled={!actionable || !onHintRequest}
-          >
-            <Text style={styles.tableHintActionText}>提示</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.tableActionButton,
-              styles.tablePlayButton,
-              (!canSubmit || selectedCards.length === 0) &&
-                styles.buttonDisabled,
-            ]}
-            onPress={handleSubmit}
-            disabled={!canSubmit}
-          >
-            <Text style={styles.tableActionText}>出牌</Text>
-          </TouchableOpacity>
+          {shouldShowPassButton && (
+            <TouchableOpacity
+              style={[
+                styles.tableActionButton,
+                styles.tablePassButton,
+                (!canOperateButtons || !canPass) && styles.buttonDisabled,
+              ]}
+              onPress={handlePass}
+              disabled={!canOperateButtons || !canPass}
+            >
+              <Text style={styles.tableActionText}>不出</Text>
+            </TouchableOpacity>
+          )}
+          {canOperateButtons && (
+            <TouchableOpacity
+              style={[
+                styles.tableActionButton,
+                styles.tableHintButton,
+                !onHintRequest && styles.buttonDisabled,
+              ]}
+              onPress={handleHint}
+              disabled={!onHintRequest}
+            >
+              <Text style={styles.tableHintActionText}>提示</Text>
+            </TouchableOpacity>
+          )}
+          {canOperateButtons && (
+            <TouchableOpacity
+              style={[
+                styles.tableActionButton,
+                styles.tablePlayButton,
+                (!canSubmit || selectedCards.length === 0) &&
+                  styles.buttonDisabled,
+              ]}
+              onPress={handleSubmit}
+              disabled={!canSubmit}
+            >
+              <Text style={styles.tableActionText}>出牌</Text>
+            </TouchableOpacity>
+          )}
+          {selectedIds.length > 0 && (
+            <TouchableOpacity
+              style={[styles.tableActionButton, styles.tableClearButton]}
+              onPress={handleClear}
+            >
+              <Text style={styles.tableActionText}>清除</Text>
+            </TouchableOpacity>
+          )}
         </View>
         <HandCards
           cards={sortedHand}
           selectedIds={selectedIds}
           onToggleSelect={toggleCard}
-          actionable={actionable}
+          actionable={canInteractWithCards}
         />
       </>
     );
@@ -271,6 +366,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#22C55E",
     borderColor: "#22C55E",
   },
+  tableClearButton: {
+    backgroundColor: "#EF4444",
+    borderColor: "#EF4444",
+  },
   tableActionText: {
     color: "#F8FAFC",
     fontWeight: "700",
@@ -307,6 +406,9 @@ const styles = StyleSheet.create({
   compactPlayButton: {
     backgroundColor: "#22C55E",
   },
+  compactClearButton: {
+    backgroundColor: "#EF4444",
+  },
   compactActionText: {
     color: "#FFFFFF",
     fontWeight: "700",
@@ -317,5 +419,14 @@ const styles = StyleSheet.create({
     color: "#0F172A",
     fontSize: 16,
     fontFamily: PLAYFUL_FONT_FAMILY,
+  },
+  hintText: {
+    color: "#FBBF24",
+    fontSize: 16,
+    fontFamily: PLAYFUL_FONT_FAMILY,
+    textAlign: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 4,
   },
 });

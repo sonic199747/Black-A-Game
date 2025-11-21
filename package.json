@@ -9,8 +9,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test:room": "node tools/test/runRoomSimulation.cjs",
-    "gateway:ws": "node tools/cli/wsRoomGatewayServer.cjs"
+    "server": "tsx ./tools/server/simpleServer.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -47,6 +46,7 @@
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
     "ts-node": "^10.9.2",
+    "tsx": "^4.20.6",
     "typescript": "~5.9.2"
   },
   "private": true

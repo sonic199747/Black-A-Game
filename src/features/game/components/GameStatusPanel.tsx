@@ -1,10 +1,18 @@
 import { Card } from "@/features/game/engine/cards";
-import { GameState } from "@/features/game/engine/gameEngineDemo";
+import type { GameState } from "@/features/game/engine/gameEngine";
+import type {
+  TributeExchange,
+  TributeSummary,
+} from "@/shared/gameEngine/gameEngineDemo"; // 或者你实际的路径
 import React, { useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
+type ExtendedGameState = GameState & {
+  tributeSummary?: TributeSummary | null;
+};
+
 interface GameStatusPanelProps {
-  state: GameState;
+  state: ExtendedGameState;
 }
 
 /**
@@ -15,7 +23,7 @@ export function GameStatusPanel({ state }: GameStatusPanelProps) {
   const finishedCount = state.players.filter((p) => p.finished).length;
   const totalPlayers = state.players.length;
   const activeCount = totalPlayers - finishedCount;
-  const tributeSummary = state.tributeSummary;
+  const tributeSummary = state.tributeSummary ?? null;
   const nameById = useMemo(() => {
     const map = new Map<string, string>();
     state.players.forEach((player) => {
@@ -59,7 +67,7 @@ export function GameStatusPanel({ state }: GameStatusPanelProps) {
             {tributeSummary.caughtIds.length} 名玩家需要进贡
           </Text>
           <View style={styles.tributeList}>
-            {tributeSummary.exchanges.map((exchange) => (
+            {tributeSummary.exchanges.map((exchange: TributeExchange) => (
               <View key={exchange.giverId} style={styles.tributeCard}>
                 <Text style={styles.tributeGiver}>
                   {exchange.giverName} 进贡
@@ -68,8 +76,7 @@ export function GameStatusPanel({ state }: GameStatusPanelProps) {
                   <Text style={styles.tributeLabel}>送出：</Text>
                   {exchange.tributeCards
                     .map((t) => {
-                      const receiverName =
-                        nameById.get(t.toId) ?? `${t.toId}`;
+                      const receiverName = nameById.get(t.toId) ?? `${t.toId}`;
                       return `${formatCardLabel(t.card)}→${receiverName}`;
                     })
                     .join("，")}

@@ -1,7 +1,8 @@
-import { PlayerState } from "@/features/game/engine/gameEngineDemo";
 import React from "react";
 import { Text, View } from "react-native";
-import { homeStyles } from "../styles/homeStyles";
+
+import { PlayerState } from "@/features/game/engine/gameEngineDemo";
+import { homeStyles } from "@/features/game/styles/homeStyles";
 import { PlayerCard } from "./PlayerCard";
 
 interface TableLayoutProps {
