@@ -10,6 +10,7 @@ import {
   createInitialGame,
   recommendPlay,
 } from "../shared/gameEngine/gameEngineDemo";
+import { canBeat, classifyPlay } from "../shared/gameEngine/plays";
 
 // ==================== 协议定义 ====================
 
@@ -49,6 +50,7 @@ class GameSession {
   seatIndex: number | null = null;
   playerId: string | null = null; // 游戏中的玩家 ID (P1, P2, etc.)
   pendingDecision: Card[] | null = null;
+  hasSubmitted = false; // 标记是否已提交决策（包括过牌）
   decisionResolved = false; // 标记决策是否已被处理
 
   constructor(id: string, displayName: string, isAI = false) {
@@ -59,11 +61,13 @@ class GameSession {
 
   submitDecision(cards: Card[] | null) {
     this.pendingDecision = cards;
+    this.hasSubmitted = true;
     this.decisionResolved = false;
   }
 
   clearDecision() {
     this.pendingDecision = null;
+    this.hasSubmitted = false;
     this.decisionResolved = false;
   }
 
@@ -148,8 +152,8 @@ class GameRoom {
       } else {
         // 真人玩家：等待手动决策
         controllers[playerId] = (state, playerIndex, context) => {
-          // 如果玩家已经提交了决策，返回它
-          if (session.pendingDecision !== null && !session.decisionResolved) {
+          // 如果玩家已经提交了决策（包括过牌），返回它
+          if (session.hasSubmitted && !session.decisionResolved) {
             const decision = session.pendingDecision;
             session.markDecisionResolved();
             console.log(
@@ -195,8 +199,51 @@ class GameRoom {
     const currentPlayerIndex = this.gameWrapper.state.currentPlayerIndex;
     const currentPlayer = this.gameWrapper.state.players[currentPlayerIndex];
 
+    console.log(`[GameRoom] 玩家尝试出牌:`, {
+      sessionId,
+      sessionDisplayName: session.displayName,
+      sessionPlayerId: session.playerId,
+      currentPlayerIndex,
+      currentPlayerId: currentPlayer.id,
+      currentPlayerName: currentPlayer.name,
+      isCorrectPlayer: currentPlayer.id === session.playerId,
+    });
+
     if (currentPlayer.id !== session.playerId) {
       throw new Error(`当前不是你的回合，轮到 ${currentPlayer.name}`);
+    }
+
+    // 验证出牌合法性
+    if (cards && cards.length > 0) {
+      // 1. 验证牌是否在玩家手里
+      const playerHand = currentPlayer.hand;
+      const handCardIds = new Set(playerHand.map((c) => c.id));
+
+      for (const card of cards) {
+        if (!handCardIds.has(card.id)) {
+          throw new Error(
+            `非法出牌：牌 ${card.rank}${card.suit} 不在你的手牌中`
+          );
+        }
+      }
+
+      // 2. 验证牌型是否合法
+      const play = classifyPlay(cards);
+      if (!play) {
+        throw new Error(
+          `非法出牌：选择的牌不构成有效牌型（${cards.length}张牌）`
+        );
+      }
+
+      // 3. 如果需要管牌，验证是否能管上家的牌
+      const lastPlay = this.gameWrapper.state.lastPlay;
+      if (lastPlay && !canBeat(lastPlay, play)) {
+        throw new Error(
+          `非法出牌：你的${play.type}(${play.cards.length}张)无法管上家的${lastPlay.type}(${lastPlay.cards.length}张)`
+        );
+      }
+
+      console.log(`[GameRoom] 出牌验证通过: ${play.type} (${cards.length}张)`);
     }
 
     // 提交决策
@@ -238,7 +285,7 @@ class GameRoom {
       if (
         currentSession &&
         !currentSession.isAI &&
-        !currentSession.decisionResolved
+        !currentSession.hasSubmitted
       ) {
         console.log(
           `[GameRoom] 等待玩家 ${currentSession.displayName} (${currentPlayer.id}) 决策，` +
@@ -468,6 +515,12 @@ export class SimpleGameServer {
         }
 
         case "PLAY_CARDS": {
+          console.log(`[SimpleGameServer] 收到 PLAY_CARDS 命令:`, {
+            clientId,
+            roomId: command.roomId,
+            cardsCount: command.cards?.length || 0,
+          });
+
           const session = this.clients.get(clientId);
           if (!session) throw new Error("会话不存在");
 
@@ -479,6 +532,10 @@ export class SimpleGameServer {
           const gameAdvanced = room.submitDecision(
             session.id,
             command.cards || []
+          );
+
+          console.log(
+            `[SimpleGameServer] PLAY_CARDS 成功，游戏推进: ${gameAdvanced}`
           );
 
           // 广播更新后的状态

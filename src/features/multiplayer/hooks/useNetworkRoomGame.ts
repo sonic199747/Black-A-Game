@@ -2,11 +2,11 @@
 // 重写版本：直接使用 WebSocket 服务器，不再依赖本地 RoomManager
 
 import type { Card } from "@/features/game/engine/cards";
-import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   RoomGameViewModel,
   RoomState,
 } from "@/features/multiplayer/types";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRoomGateway } from "./useRoomGateway";
 
 /**
@@ -94,7 +94,9 @@ export function useNetworkRoomGame(
     if (joinedRef.current) return;
     if (roomId === "temp-room") return; // 占位房间不加入
 
-    console.log(`[useNetworkRoomGame] 加入房间: ${roomId}, 昵称: ${displayName}`);
+    console.log(
+      `[useNetworkRoomGame] 加入房间: ${roomId}, 昵称: ${displayName}`
+    );
     joinedRef.current = true;
 
     sendCommand({
@@ -115,6 +117,11 @@ export function useNetworkRoomGame(
   // 行为方法
   const playCards = useCallback(
     (cards: Card[]) => {
+      console.log("[useNetworkRoomGame] 发送出牌命令:", {
+        roomId,
+        cardsCount: cards.length,
+        cards: cards.map((c) => `${c.rank}${c.suit}`),
+      });
       sendCommand({
         type: "PLAY_CARDS",
         roomId,
